@@ -44,7 +44,8 @@ const DEFAULT_PROFILE = {
   cover: "https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&w=1200&q=80",
   bio: "Spicy romance enthusiast. Always reading past my bedtime. ☕️✨",
   readingGoal: 100,
-  booksRead: 80
+  booksRead: 80,
+  friends: []
 };
 
 const SEED_POSTS = [
@@ -444,9 +445,13 @@ export function getProfile() {
       localStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(DEFAULT_PROFILE));
       return DEFAULT_PROFILE;
     }
-    return JSON.parse(data);
+    const profile = JSON.parse(data);
+    if (!profile.friends) profile.friends = [];
+    return profile;
   }
-  return cachedProfile || DEFAULT_PROFILE;
+  const profile = cachedProfile || DEFAULT_PROFILE;
+  if (!profile.friends) profile.friends = [];
+  return profile;
 }
 
 export async function saveProfile(profile) {
@@ -787,9 +792,69 @@ export async function searchOnlineLibrary(query) {
 // -------------------------------------------------------------
 // Friends List Logic
 // -------------------------------------------------------------
+function getAllUsersRaw() {
+  const posts = getPosts();
+  const currentUser = getProfile();
+  
+  const usersMap = new Map();
+  
+  // Add current user
+  usersMap.set(currentUser.username, {
+    name: currentUser.name,
+    username: currentUser.username,
+    avatar: currentUser.avatar,
+    bio: currentUser.bio || "No bio yet.",
+    isCurrentUser: true
+  });
+  
+  // Add users from posts
+  posts.forEach(p => {
+    if (p.user && !usersMap.has(p.user.username)) {
+      usersMap.set(p.user.username, {
+        name: p.user.name,
+        username: p.user.username,
+        avatar: p.user.avatar,
+        bio: `${p.user.name} is a proud member of the Hot Girls Read book club! 📖✨`,
+        isCurrentUser: false
+      });
+    }
+  });
+  
+  // Add SEED_FRIENDS as well to populate potential users
+  SEED_FRIENDS.forEach(f => {
+    if (!usersMap.has(f.username)) {
+      usersMap.set(f.username, {
+        name: f.name,
+        username: f.username,
+        avatar: f.avatar,
+        bio: `${f.name} loves reading spicy romance and fantasy novels! ✨`,
+        isCurrentUser: false
+      });
+    }
+  });
+
+  return Array.from(usersMap.values());
+}
+
 export function getFriendsList() {
-  if (!isFirebaseConfigured) return SEED_FRIENDS;
-  return cachedFriends.length > 0 ? cachedFriends : SEED_FRIENDS;
+  if (isFirebaseConfigured) {
+    return cachedFriends;
+  }
+  
+  const profile = getProfile();
+  const friendsUsernames = profile.friends || [];
+  const allUsers = getAllUsersRaw();
+  
+  return allUsers
+    .filter(u => friendsUsernames.includes(u.username))
+    .map(u => ({
+      name: u.name,
+      username: u.username,
+      avatar: u.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80",
+      status: "reading",
+      bookTitle: "Just started reading",
+      bookAuthor: "Featured Author"
+    }));
 }
 
 export function getAllUsers() {
@@ -837,19 +902,36 @@ export function getAllUsers() {
   return Array.from(usersMap.values());
 }
 
+export async function toggleFriend(friendUsername) {
+  const profile = getProfile();
+  if (!profile.friends) {
+    profile.friends = [];
+  }
+  
+  const idx = profile.friends.indexOf(friendUsername);
+  if (idx !== -1) {
+    profile.friends.splice(idx, 1);
+  } else {
+    profile.friends.push(friendUsername);
+  }
+  
+  await saveProfile(profile);
+  return profile.friends;
+}
+
 export async function fetchFriends() {
-  if (!isFirebaseConfigured) return SEED_FRIENDS;
+  if (!isFirebaseConfigured) return [];
   try {
     const usersRef = collection(db, "users");
     const snapshot = await getDocs(usersRef);
     
-    const friends = [];
+    const allUsers = [];
     const currentUser = auth.currentUser;
     
     snapshot.forEach(docSnap => {
       if (currentUser && docSnap.id === currentUser.uid) return;
       const u = docSnap.data();
-      friends.push({
+      allUsers.push({
         name: u.name,
         username: u.username,
         avatar: u.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80",
@@ -859,11 +941,15 @@ export async function fetchFriends() {
       });
     });
     
-    cachedFriends = friends.length > 0 ? friends : SEED_FRIENDS;
+    const profile = getProfile();
+    const friendsUsernames = profile.friends || [];
+    const friends = allUsers.filter(u => friendsUsernames.includes(u.username));
+    
+    cachedFriends = friends;
     return cachedFriends;
   } catch (error) {
     console.error("Failed to fetch friends from Firestore:", error);
-    return SEED_FRIENDS;
+    return [];
   }
 }
 

@@ -2,7 +2,7 @@ import {
   getProfile, saveProfile, getPosts, addPost, toggleLikePost, addCommentToPost, 
   getAllBooks, saveCustomBook, getCustomBooks, searchOnlineLibrary, updatePost, 
   getFriendsList, getAllUsers, signUpUser, signInUser, signOutUser, subscribeToAuthChanges, 
-  registerPostsUpdateListener, isFirebaseConfigured, fetchFriends 
+  registerPostsUpdateListener, isFirebaseConfigured, fetchFriends, toggleFriend 
 } from './storage.js?v=5';
 
 // Application State
@@ -316,27 +316,68 @@ function loadProfileDashboard() {
     profileCoverBanner.style.backgroundImage = `url('${targetProfile.cover}')`;
   }
 
-  // Toggle Edit Profile Button vs Friend Badge
+  // Toggle Edit Profile Button vs Friend Button
   if (btnEditProfileBtn) {
     btnEditProfileBtn.style.display = isOwnProfile ? 'inline-flex' : 'none';
   }
 
-  // Handle a follow/friend badge for other users
-  let friendBadge = document.getElementById('profile-friend-badge');
+  // Handle a clickable follow/friend button for other users
+  let friendBtn = document.getElementById('profile-friend-btn');
+  let oldFriendBadge = document.getElementById('profile-friend-badge');
+  if (oldFriendBadge) {
+    oldFriendBadge.remove(); // Clean up old static badge if it exists
+  }
+
   if (!isOwnProfile) {
-    if (!friendBadge) {
-      friendBadge = document.createElement('span');
-      friendBadge.id = 'profile-friend-badge';
-      friendBadge.className = 'profile-status-badge-custom';
-      friendBadge.textContent = 'Friend';
-      // Append it right next to edit profile button
+    if (!friendBtn) {
+      friendBtn = document.createElement('button');
+      friendBtn.id = 'profile-friend-btn';
+      friendBtn.style.padding = '8px 16px';
+      friendBtn.style.fontSize = '0.85rem';
+      friendBtn.style.borderRadius = 'var(--radius-md)';
+      friendBtn.style.cursor = 'pointer';
+      friendBtn.style.fontWeight = '600';
+      friendBtn.style.transition = 'var(--transition)';
+      
+      // Append next to edit profile button
       if (btnEditProfileBtn && btnEditProfileBtn.parentNode) {
-        btnEditProfileBtn.parentNode.appendChild(friendBadge);
+        btnEditProfileBtn.parentNode.appendChild(friendBtn);
       }
     }
-    if (friendBadge) friendBadge.style.display = 'inline-flex';
-  } else if (friendBadge) {
-    friendBadge.style.display = 'none';
+    
+    // Update button text and styling depending on friend status
+    const profile = getProfile();
+    const isFriend = (profile.friends || []).includes(targetProfile.username);
+    if (isFriend) {
+      friendBtn.textContent = '💖 Friend';
+      friendBtn.className = 'btn-secondary';
+      friendBtn.style.backgroundColor = 'var(--color-primary-light)';
+      friendBtn.style.color = 'var(--color-primary)';
+      friendBtn.style.borderColor = 'var(--color-primary)';
+    } else {
+      friendBtn.textContent = '🌸 Add Friend';
+      friendBtn.className = 'btn-primary';
+      friendBtn.style.backgroundColor = 'var(--color-primary)';
+      friendBtn.style.color = '#FFFFFF';
+      friendBtn.style.borderColor = 'var(--color-primary)';
+    }
+    
+    friendBtn.onclick = async () => {
+      friendBtn.disabled = true;
+      await toggleFriend(targetProfile.username);
+      // Re-load view to update button state
+      loadProfileDashboard();
+      // Fetch friends list again to keep cache updated
+      fetchFriends().then(() => {
+        if (currentProfileTab === 'friends' && currentView === 'profile') {
+          renderProfileFriends();
+        }
+      });
+    };
+
+    friendBtn.style.display = 'inline-flex';
+  } else if (friendBtn) {
+    friendBtn.style.display = 'none';
   }
 }
 
