@@ -1,4 +1,9 @@
-import { getProfile, saveProfile, getPosts, addPost, toggleLikePost, addCommentToPost, getAllBooks, saveCustomBook, getCustomBooks, searchOnlineLibrary, updatePost, getFriendsList, getAllUsers } from './storage.js?v=5';
+import { 
+  getProfile, saveProfile, getPosts, addPost, toggleLikePost, addCommentToPost, 
+  getAllBooks, saveCustomBook, getCustomBooks, searchOnlineLibrary, updatePost, 
+  getFriendsList, getAllUsers, signUpUser, signInUser, signOutUser, subscribeToAuthChanges, 
+  registerPostsUpdateListener, isFirebaseConfigured, fetchFriends 
+} from './storage.js?v=5';
 
 // Application State
 let currentFilter = 'all';
@@ -14,6 +19,7 @@ let browseCategorySelected = 'all';
 let currentProfileTab = 'bookshelf';
 let viewedProfileUser = null; // stores username when viewing other profiles, or null for own profile
 let zoomedShelfIndex = null; // tracks which shelf index is currently zoomed in, or null if zoomed out
+let showingLogin = true;
 
 // DOM Elements
 const navAvatar = document.getElementById('nav-profile-avatar');
@@ -139,12 +145,116 @@ const btnLibraryZoomOut = document.getElementById('btn-library-zoom-out');
 // Refresh Page Logo Link
 const logoRefresh = document.getElementById('logo-refresh');
 
+// Auth UI elements
+const authContainer = document.getElementById('auth-container');
+const loginForm = document.getElementById('login-form');
+const signupForm = document.getElementById('signup-form');
+const btnToggleAuth = document.getElementById('btn-toggle-auth');
+const authTitle = document.getElementById('auth-title');
+const authSubtitle = document.getElementById('auth-subtitle');
+const authSwitchText = document.getElementById('auth-switch-text');
+const loginError = document.getElementById('login-error');
+const signupError = document.getElementById('signup-error');
+const btnSignoutNav = document.getElementById('btn-signout-nav');
+
+const mainHeader = document.querySelector('header');
+const mainWrapper = document.querySelector('.main-wrapper');
+
+// Auth View Helpers
+function toggleAuthView(showAuth) {
+  if (showAuth) {
+    if (authContainer) authContainer.style.display = 'flex';
+    if (mainHeader) mainHeader.style.display = 'none';
+    if (mainWrapper) mainWrapper.style.display = 'none';
+  } else {
+    if (authContainer) authContainer.style.display = 'none';
+    if (mainHeader) mainHeader.style.display = 'block';
+    if (mainWrapper) mainWrapper.style.display = 'grid';
+  }
+}
+
+function toggleAuthMode() {
+  showingLogin = !showingLogin;
+  if (showingLogin) {
+    loginForm.style.display = 'flex';
+    signupForm.style.display = 'none';
+    authTitle.textContent = 'Welcome to the Club';
+    authSubtitle.textContent = 'Share your reading journey, track goals, and connect with friends.';
+    authSwitchText.textContent = 'New to HotGirlsRead?';
+    btnToggleAuth.textContent = 'Create an account';
+  } else {
+    loginForm.style.display = 'none';
+    signupForm.style.display = 'flex';
+    authTitle.textContent = 'Join the Club';
+    authSubtitle.textContent = 'Create your account to start tracking and sharing your reading.';
+    authSwitchText.textContent = 'Already have an account?';
+    btnToggleAuth.textContent = 'Sign in';
+  }
+  
+  // Clear errors
+  loginError.style.display = 'none';
+  loginError.textContent = '';
+  signupError.style.display = 'none';
+  signupError.textContent = '';
+}
+
+function formatAuthError(errorCode) {
+  switch (errorCode) {
+    case 'auth/invalid-email':
+    case 'invalid-email':
+      return 'The email address is invalid.';
+    case 'auth/user-disabled':
+    case 'user-disabled':
+      return 'This account has been disabled.';
+    case 'auth/user-not-found':
+    case 'user-not-found':
+      return 'No account found with this email.';
+    case 'auth/wrong-password':
+    case 'wrong-password':
+      return 'Incorrect password. Please try again.';
+    case 'auth/email-already-in-use':
+    case 'email-already-in-use':
+      return 'An account already exists with this email.';
+    case 'auth/weak-password':
+    case 'weak-password':
+      return 'The password must be at least 6 characters.';
+    case 'auth/operation-not-allowed':
+      return 'Email/password sign-in is not enabled in Firebase Console.';
+    case 'auth/invalid-credential':
+      return 'Invalid credentials. Please verify your email and password.';
+    default:
+      return errorCode.replace('auth/', '').replace(/-/g, ' ');
+  }
+}
+
 // Initialize App
 function init() {
-  loadProfile();
-  renderTrendingBooks();
-  renderFeed();
   setupEventListeners();
+
+  // Register database realtime listeners to refresh interface on updates
+  registerPostsUpdateListener(() => {
+    renderFeed();
+    updateCurrentlyReadingWidget();
+  });
+
+  // Observe Auth Session changes
+  subscribeToAuthChanges((user) => {
+    if (user) {
+      toggleAuthView(false);
+      loadProfile();
+      renderTrendingBooks();
+      renderFeed();
+
+      // Async load friends and update UI if view is visible
+      fetchFriends().then(() => {
+        if (currentProfileTab === 'friends' && currentView === 'profile') {
+          renderProfileFriends();
+        }
+      });
+    } else {
+      toggleAuthView(true);
+    }
+  });
 }
 
 // Load Profile Info
@@ -371,7 +481,7 @@ function renderFeed() {
       ${post.comment ? `<p class="post-comment-text">${escapeHTML(post.comment)}</p>` : ''}
       
       ${(() => {
-        const isCurrentUserPost = post.user.username === userProfile.username;
+        const isCurrentUserPost = userProfile && (post.user.username === userProfile.username);
         const canUpdateProgress = isCurrentUserPost && post.status === 'reading';
         const updateProgressBtnHtml = canUpdateProgress ? `
           <button class="action-btn update-progress-btn" data-post-id="${post.id}">
@@ -1028,7 +1138,7 @@ function getSpineStyles(title) {
 // Render My Library View (Interactive wood bookshelf with expandable book spines)
 function renderLibrary() {
   const posts = getPosts();
-  const userPosts = posts.filter(p => p.user.username === userProfile.username);
+  const userPosts = userProfile ? posts.filter(p => p.user.username === userProfile.username) : [];
   
   // Extract unique books from posts
   const uniqueBooksMap = new Map();
@@ -1040,18 +1150,6 @@ function renderLibrary() {
   });
 
   libraryGrid.innerHTML = '';
-  
-  if (uniqueBooksMap.size === 0) {
-    if (btnLibraryZoomOut) btnLibraryZoomOut.style.display = 'none';
-    libraryGrid.innerHTML = `
-      <div style="text-align: center; padding: 48px 20px; color: var(--color-text-muted);">
-        <span style="font-size: 2.5rem; display: block; margin-bottom: 8px;">📚</span>
-        <p style="font-weight: 500;">Your library is empty.</p>
-        <p style="font-size: 0.85rem; margin-top: 4px;">Click the Post button or search for books to add updates!</p>
-      </div>
-    `;
-    return;
-  }
 
   // Toggle Zoom Out button visibility and Grid zoomed-active status
   if (btnLibraryZoomOut) {
@@ -1067,7 +1165,7 @@ function renderLibrary() {
 
   if (zoomedShelfIndex !== null) {
     // Zoomed-In View: A single long horizontal shelf of large books that scrolls
-    const booksPerShelf = Math.ceil(books.length / 4);
+    const booksPerShelf = Math.max(1, Math.ceil(books.length / 4));
     const startIdx = zoomedShelfIndex * booksPerShelf;
     const shelfBooks = books.slice(startIdx, startIdx + booksPerShelf);
 
@@ -1190,7 +1288,7 @@ function renderLibrary() {
     libraryGrid.appendChild(shelfContainer);
 
   } else {
-    // Zoomed-Out View: Entire library is a horizontal corridor of bookcase bays that scroll together
+    // Zoomed-Out View: Entire library is a horizontal corridor of 4 shelves that scroll together
     const booksPerShelf = Math.ceil(books.length / 4);
     
     // Slice books into 4 shelves
@@ -1202,26 +1300,25 @@ function renderLibrary() {
     ];
 
     const booksPerBay = 6;
-    const numBays = Math.max(5, Math.ceil(booksPerShelf / booksPerBay)); // Keep at least 5 bays
+    const numBays = Math.max(1, Math.ceil(booksPerShelf / booksPerBay)); // Keep at least 1 bay
 
     // Create the library wall container
     const libraryWall = document.createElement('div');
     libraryWall.className = 'library-wall';
 
-    // Add starting upright divider
-    const startUpright = document.createElement('div');
-    startUpright.className = 'bookshelf-upright';
-    libraryWall.appendChild(startUpright);
+    // Render 4 shelves stacked vertically
+    for (let shelfIdx = 0; shelfIdx < 4; shelfIdx++) {
+      const shelfContainer = document.createElement('div');
+      shelfContainer.className = 'bookshelf-container';
+      
+      const bookRow = document.createElement('div');
+      bookRow.className = 'bookshelf-row';
+      bookRow.dataset.shelfIndex = shelfIdx;
 
-    for (let bayIdx = 0; bayIdx < numBays; bayIdx++) {
-      const bayContainer = document.createElement('div');
-      bayContainer.className = 'bookshelf-bay';
-
-      // Render 4 shelves inside this bay
-      for (let shelfIdx = 0; shelfIdx < 4; shelfIdx++) {
-        const bayShelfRow = document.createElement('div');
-        bayShelfRow.className = 'bay-shelf-row';
-        bayShelfRow.dataset.shelfIndex = shelfIdx;
+      // Group books into bays horizontally
+      for (let bayIdx = 0; bayIdx < numBays; bayIdx++) {
+        const baySegment = document.createElement('div');
+        baySegment.className = 'shelf-bay-segment';
 
         // Get books for this shelf in this bay
         const start = bayIdx * booksPerBay;
@@ -1245,45 +1342,59 @@ function renderLibrary() {
               <div class="book-spine-title-container">
                 <span class="book-spine-title">${book.title}</span>
               </div>
-              <div class="book-spine-author" style="color: ${bookStyles.text === '#FFFFFF' ? 'rgba(255,255,255,0.75)' : 'rgba(30,18,20,0.75)'};">
-                ${book.author}
-              </div>
             </div>
           `;
           
-          bayShelfRow.appendChild(bookEl);
-        });
-
-        // Click handler to zoom in on this shelf index
-        let shelfMousedownX = 0;
-        let shelfMousedownY = 0;
-        
-        bayShelfRow.addEventListener('mousedown', (e) => {
-          shelfMousedownX = e.clientX;
-          shelfMousedownY = e.clientY;
-        });
-        
-        bayShelfRow.addEventListener('click', (e) => {
-          const deltaX = Math.abs(e.clientX - shelfMousedownX);
-          const deltaY = Math.abs(e.clientY - shelfMousedownY);
-          if (deltaX > 10 || deltaY > 10) return; // Dragging, don't zoom
+          bookEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openBookDetailsModal(book);
+          });
           
-          zoomedShelfIndex = shelfIdx;
-          renderLibrary();
+          baySegment.appendChild(bookEl);
         });
 
-        const shelfWood = document.createElement('div');
-        shelfWood.className = 'bookshelf-wood';
+        bookRow.appendChild(baySegment);
 
-        bayContainer.appendChild(bayShelfRow);
-        bayContainer.appendChild(shelfWood);
+        // Add spacer segment where the upright pillar sits
+        const spacer = document.createElement('div');
+        spacer.className = 'upright-spacer';
+        bookRow.appendChild(spacer);
       }
 
-      libraryWall.appendChild(bayContainer);
+      // Zoom-in click handler on the row (excluding drag actions)
+      let shelfMousedownX = 0;
+      let shelfMousedownY = 0;
+      
+      bookRow.addEventListener('mousedown', (e) => {
+        shelfMousedownX = e.clientX;
+        shelfMousedownY = e.clientY;
+      });
+      
+      bookRow.addEventListener('click', (e) => {
+        const deltaX = Math.abs(e.clientX - shelfMousedownX);
+        const deltaY = Math.abs(e.clientY - shelfMousedownY);
+        if (deltaX > 10 || deltaY > 10) return; // Dragging, don't zoom
+        
+        zoomedShelfIndex = shelfIdx;
+        renderLibrary();
+      });
 
-      // Add upright divider after the bay
+      const woodLedge = document.createElement('div');
+      woodLedge.className = 'bookshelf-wood';
+
+      shelfContainer.appendChild(bookRow);
+      shelfContainer.appendChild(woodLedge);
+      libraryWall.appendChild(shelfContainer);
+    }
+
+    // Render vertical upright pillars absolutely positioned over spacers
+    // We place one starting upright and one after each bay segment
+    for (let bayIdx = 0; bayIdx <= numBays; bayIdx++) {
       const upright = document.createElement('div');
       upright.className = 'bookshelf-upright';
+      // Each bay is 282px wide, and spacers are 18px wide.
+      // So the left position is bayIdx * (282 + 18) = bayIdx * 300px
+      upright.style.left = `${bayIdx * 300}px`;
       libraryWall.appendChild(upright);
     }
 
@@ -1764,7 +1875,7 @@ function setupEventListeners() {
   });
 
   // Post Submission
-  btnSubmitPost.addEventListener('click', () => {
+  btnSubmitPost.addEventListener('click', async () => {
     if (!selectedBookForPost) {
       alert('Please select or search for a book first!');
       bookSearchInput.focus();
@@ -1776,7 +1887,7 @@ function setupEventListeners() {
     const rating = status === 'finished' ? currentRatingSelection : 0;
 
     if (editingPostId) {
-      updatePost(editingPostId, {
+      await updatePost(editingPostId, {
         status: status,
         rating: rating,
         comment: comment
@@ -1785,9 +1896,9 @@ function setupEventListeners() {
       const newPost = {
         id: `post_${Date.now()}`,
         user: {
-          name: userProfile.name,
-          username: userProfile.username,
-          avatar: userProfile.avatar
+          name: userProfile ? userProfile.name : "Me",
+          username: userProfile ? userProfile.username : "me",
+          avatar: userProfile ? userProfile.avatar : ""
         },
         book: selectedBookForPost,
         status: status,
@@ -1798,12 +1909,14 @@ function setupEventListeners() {
         comments: [],
         timestamp: "Just now"
       };
-      addPost(newPost);
+      await addPost(newPost);
     }
 
     closeModal();
     loadProfile(); // Updates count stats and currently reading card
-    renderFeed();
+    if (!isFirebaseConfigured) {
+      renderFeed();
+    }
   });
 
   // Feed Event Delegation: Likes, profile link clicks, and Comment Forms
@@ -1835,13 +1948,13 @@ function setupEventListeners() {
     const likeBtn = e.target.closest('.like-btn');
     if (likeBtn) {
       const postId = likeBtn.dataset.postId;
-      const updatedPosts = toggleLikePost(postId);
-      const post = updatedPosts.find(p => p.id === postId);
-      
-      likeBtn.classList.toggle('active', post.likedByUser);
-      likeBtn.querySelector('.like-count').textContent = post.likes;
-      
-      // Heart Pop animation effect handled by CSS
+      toggleLikePost(postId).then(updatedPosts => {
+        if (!isFirebaseConfigured) {
+          const post = updatedPosts.find(p => p.id === postId);
+          likeBtn.classList.toggle('active', post.likedByUser);
+          likeBtn.querySelector('.like-count').textContent = post.likes;
+        }
+      });
       return;
     }
 
@@ -1871,7 +1984,7 @@ function setupEventListeners() {
   });
 
   // Feed Event Delegation: Comments Submission
-  feedContainer.addEventListener('submit', (e) => {
+  feedContainer.addEventListener('submit', async (e) => {
     const form = e.target.closest('.comment-input-form');
     if (form) {
       e.preventDefault();
@@ -1881,10 +1994,12 @@ function setupEventListeners() {
       
       if (!val) return;
 
-      addCommentToPost(postId, val, userProfile);
+      await addCommentToPost(postId, val, userProfile);
       inputField.value = '';
       
-      renderFeed();
+      if (!isFirebaseConfigured) {
+        renderFeed();
+      }
     }
   });
 
@@ -1934,20 +2049,21 @@ function setupEventListeners() {
       description: "A wonderful custom added book."
     };
 
-    saveCustomBook(customBook);
-    
-    // Reset button
-    submitBtn.textContent = originalText;
-    submitBtn.disabled = false;
+    saveCustomBook(customBook).then(() => {
+      // Reset button
+      if (submitBtn) {
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
+      }
 
-    // Clear Form inputs
-    customTitleInput.value = '';
-    customAuthorInput.value = '';
-    customGenreInput.value = '';
+      // Clear Form inputs
+      customTitleInput.value = '';
+      customAuthorInput.value = '';
+      customGenreInput.value = '';
 
-    // Alert user with a premium custom alert message, then refresh
-    alert(`"${title}" has been successfully added to your database! You can now search for it when creating a post.`);
-    renderTrendingBooks();
+      alert(`"${title}" has been successfully added to your database! You can now search for it when creating a post.`);
+      renderTrendingBooks();
+    });
   });
 
   // Library Zoom Out Button Click Handler
@@ -1967,10 +2083,71 @@ function setupEventListeners() {
     btnBrowseSearchSubmit.addEventListener('click', () => executeBrowseSearch());
   }
 
-  if (browseSearchInput) {
-    browseSearchInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        executeBrowseSearch();
+    if (browseSearchInput) {
+      browseSearchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          executeBrowseSearch();
+        }
+      });
+    }
+
+    // Login Form Submission
+    if (loginForm) {
+      loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('login-email').value.trim();
+        const password = document.getElementById('login-password').value;
+        const submitBtn = document.getElementById('btn-login-submit');
+        const btnText = submitBtn.querySelector('.btn-text');
+        const spinner = submitBtn.querySelector('.spinner-mini');
+        
+        submitBtn.disabled = true;
+        if (btnText) btnText.style.display = 'none';
+        if (spinner) spinner.style.display = 'inline-block';
+        loginError.style.display = 'none';
+        
+        try {
+          await signInUser(email, password);
+        } catch (err) {
+          console.error("Sign in error:", err);
+          loginError.textContent = formatAuthError(err.code || err.message);
+          loginError.style.display = 'block';
+        } finally {
+          submitBtn.disabled = false;
+          if (btnText) btnText.style.display = 'inline';
+          if (spinner) spinner.style.display = 'none';
+        }
+      });
+    }
+
+
+  // Signup Form Submission
+  if (signupForm) {
+    signupForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('signup-name').value.trim();
+      const username = document.getElementById('signup-username').value.trim();
+      const email = document.getElementById('signup-email').value.trim();
+      const password = document.getElementById('signup-password').value;
+      const submitBtn = document.getElementById('btn-signup-submit');
+      const btnText = submitBtn.querySelector('.btn-text');
+      const spinner = submitBtn.querySelector('.spinner-mini');
+      
+      submitBtn.disabled = true;
+      if (btnText) btnText.style.display = 'none';
+      if (spinner) spinner.style.display = 'inline-block';
+      signupError.style.display = 'none';
+      
+      try {
+        await signUpUser(email, password, name, username);
+      } catch (err) {
+        console.error("Sign up error:", err);
+        signupError.textContent = formatAuthError(err.code || err.message);
+        signupError.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false;
+        if (btnText) btnText.style.display = 'inline';
+        if (spinner) spinner.style.display = 'none';
       }
     });
   }
@@ -2011,6 +2188,20 @@ function setupEventListeners() {
   if (btnTabFeed) btnTabFeed.addEventListener('click', () => switchView('feed'));
   if (btnTabLibrary) btnTabLibrary.addEventListener('click', () => switchView('library'));
   if (btnTabBrowse) btnTabBrowse.addEventListener('click', () => switchView('browse'));
+
+  // Toggle Login/Signup Modes
+  if (btnToggleAuth) {
+    btnToggleAuth.addEventListener('click', toggleAuthMode);
+  }
+
+  // Sign Out Header Button
+  if (btnSignoutNav) {
+    btnSignoutNav.addEventListener('click', async () => {
+      if (confirm("Are you sure you want to sign out of HotGirlsRead?")) {
+        await signOutUser();
+      }
+    });
+  }
 
   // Switch to Profile View Triggers
   if (navAvatar) navAvatar.addEventListener('click', () => switchView('profile'));

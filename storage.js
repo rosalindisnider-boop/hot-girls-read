@@ -1,5 +1,36 @@
 import { PRESEEDED_BOOKS } from './books.js?v=5';
+import { firebaseConfig } from './firebase-config.js';
 
+
+// Import Firebase modules from CDN (Modular SDK)
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+import { 
+  getAuth, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged,
+  updateProfile
+} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+import { 
+  getFirestore, 
+  doc, 
+  getDoc, 
+  setDoc, 
+  collection, 
+  addDoc, 
+  getDocs, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  updateDoc,
+  arrayUnion,
+  arrayRemove,
+  increment,
+  writeBatch
+} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+
+// Keys for localStorage fallback
 const STORAGE_KEYS = {
   POSTS: 'hotgirlsread_posts',
   CUSTOM_BOOKS: 'hotgirlsread_custom_books',
@@ -47,7 +78,7 @@ const SEED_POSTS = [
   {
     id: "post_2",
     user: {
-      name: "Seraphina Vance", // Matches the default user profile
+      name: "Seraphina Vance",
       username: "seraphinareads",
       avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
     },
@@ -291,41 +322,420 @@ const SEED_POSTS = [
   }
 ];
 
-export function getProfile() {
-  const data = localStorage.getItem(STORAGE_KEYS.USER_PROFILE);
-  if (!data) {
-    localStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(DEFAULT_PROFILE));
-    return DEFAULT_PROFILE;
+const SEED_FRIENDS = [
+  {
+    name: "Elara Thorne",
+    username: "elaralovesbooks",
+    avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=150&q=80",
+    status: "reading",
+    bookTitle: "A Court of Thorns and Roses",
+    bookAuthor: "Sarah J. Maas"
+  },
+  {
+    name: "Maeve Sinclair",
+    username: "maeve_reads",
+    avatar: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&q=80",
+    status: "finished",
+    bookTitle: "Iron Flame",
+    bookAuthor: "Rebecca Yarros"
+  },
+  {
+    name: "Oliver Blackwood",
+    username: "oliver_reads",
+    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80",
+    status: "reading",
+    bookTitle: "The Hobbit",
+    bookAuthor: "J.R.R. Tolkien"
+  },
+  {
+    name: "Daisy Bloom",
+    username: "daisybooks",
+    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80",
+    status: "finished",
+    bookTitle: "Daisy Jones & The Six",
+    bookAuthor: "Taylor Jenkins Reid"
   }
-  return JSON.parse(data);
+];
+
+// Determine if Firebase is configured
+export const isFirebaseConfigured = firebaseConfig && 
+  firebaseConfig.apiKey && 
+  firebaseConfig.apiKey !== "YOUR_API_KEY" &&
+  firebaseConfig.apiKey.trim() !== "";
+
+// Global Firebase service instances
+export let auth = null;
+export let db = null;
+
+let cachedProfile = null;
+let cachedPosts = [];
+let cachedCustomBooks = [];
+let cachedFriends = [];
+let onPostsUpdatedCallback = null;
+
+if (isFirebaseConfigured) {
+  try {
+    const app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+    
+    // Subscribe to Firestore collections in real-time
+    subscribeToCollections();
+  } catch (error) {
+    console.error("Failed to initialize Firebase:", error);
+  }
+} else {
+  console.warn("Firebase is not configured. Falling back to localStorage mock mode.");
 }
 
-export function saveProfile(profile) {
-  localStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(profile));
+// -------------------------------------------------------------
+// Real-time Listeners
+// -------------------------------------------------------------
+function subscribeToCollections() {
+  // Listen to posts
+  const postsQuery = query(collection(db, "posts"), orderBy("timestamp", "desc"));
+  onSnapshot(postsQuery, (snapshot) => {
+    cachedPosts = snapshot.docs.map(doc => {
+      const data = doc.data();
+      const currentUser = auth ? auth.currentUser : null;
+      const likedByUser = currentUser ? (data.likedBy || []).includes(currentUser.uid) : false;
+      return {
+        id: doc.id,
+        ...data,
+        likedByUser: likedByUser,
+        timestamp: data.timestamp ? formatFirestoreTimestamp(data.timestamp) : "Just now"
+      };
+    });
+    
+    // Auto-seed if database is completely empty
+    if (snapshot.empty && cachedPosts.length === 0) {
+      seedFirestoreDatabase();
+    } else {
+      if (onPostsUpdatedCallback) {
+        onPostsUpdatedCallback(cachedPosts);
+      }
+    }
+  }, (error) => {
+    console.error("Error fetching realtime posts snapshot:", error);
+  });
+
+  // Listen to custom books
+  onSnapshot(collection(db, "books"), (snapshot) => {
+    cachedCustomBooks = snapshot.docs.map(doc => doc.data());
+  }, (error) => {
+    console.error("Error fetching realtime books snapshot:", error);
+  });
 }
 
+// -------------------------------------------------------------
+// Callback registration for UI updates
+// -------------------------------------------------------------
+export function registerPostsUpdateListener(callback) {
+  onPostsUpdatedCallback = callback;
+}
+
+// -------------------------------------------------------------
+// User Profile Logic
+// -------------------------------------------------------------
+export function getProfile() {
+  if (!isFirebaseConfigured) {
+    const data = localStorage.getItem(STORAGE_KEYS.USER_PROFILE);
+    if (!data) {
+      localStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(DEFAULT_PROFILE));
+      return DEFAULT_PROFILE;
+    }
+    return JSON.parse(data);
+  }
+  return cachedProfile || DEFAULT_PROFILE;
+}
+
+export async function saveProfile(profile) {
+  if (!isFirebaseConfigured) {
+    localStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(profile));
+    return;
+  }
+  
+  const currentUser = auth.currentUser;
+  if (!currentUser) return;
+  
+  const userDocRef = doc(db, "users", currentUser.uid);
+  await setDoc(userDocRef, profile, { merge: true });
+  cachedProfile = { ...cachedProfile, ...profile };
+}
+
+// -------------------------------------------------------------
+// Posts, Likes and Comments Logic
+// -------------------------------------------------------------
+export function getPosts() {
+  if (!isFirebaseConfigured) {
+    const data = localStorage.getItem(STORAGE_KEYS.POSTS);
+    let posts = [];
+    if (!data) {
+      posts = SEED_POSTS;
+    } else {
+      try {
+        posts = JSON.parse(data);
+      } catch (e) {
+        posts = SEED_POSTS;
+      }
+    }
+
+    // Count unique books for the user 'seraphinareads'
+    const ownPosts = posts.filter(p => p.user && p.user.username === 'seraphinareads');
+    const uniqueBookIds = new Set(ownPosts.map(p => p.book.id));
+
+    // If user has less than 95 books of the preseeded ones, force-add posts for all 100 books
+    if (uniqueBookIds.size < 95) {
+      const injectedPosts = [...posts];
+      PRESEEDED_BOOKS.forEach((book, idx) => {
+        if (!uniqueBookIds.has(book.id)) {
+          const isFinished = idx % 5 !== 0; // Make some reading, most finished
+          const rating = isFinished ? (3 + (idx % 3)) : 0; // rating 3, 4, or 5
+          const comment = isFinished 
+            ? `I absolutely loved reading "${book.title}"! High-fidelity wood shelf zoom testing looks fantastic.` 
+            : `Currently reading "${book.title}" on my beautiful scrolling library shelf!`;
+          
+          injectedPosts.push({
+            id: `injected_${book.id}_${Date.now()}`,
+            user: {
+              name: "Seraphina Vance",
+              username: "seraphinareads",
+              avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+            },
+            book: book,
+            status: isFinished ? "finished" : "reading",
+            rating: rating,
+            comment: comment,
+            likes: Math.floor(Math.random() * 50) + 10,
+            likedByUser: Math.random() > 0.5,
+            comments: [],
+            timestamp: `${idx + 1} day${idx !== 0 ? 's' : ''} ago`
+          });
+        }
+      });
+      localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(injectedPosts));
+      
+      // Dynamically update user profile booksRead and readingGoal to match the new database size
+      const profile = getProfile();
+      const ownFinishedCount = injectedPosts.filter(p => p.user && p.user.username === 'seraphinareads' && p.status === 'finished').length;
+      profile.booksRead = ownFinishedCount;
+      profile.readingGoal = 100;
+      saveProfile(profile);
+      
+      return injectedPosts;
+    }
+    
+    return posts;
+  }
+  return cachedPosts;
+}
+
+function savePosts(posts) {
+  localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(posts));
+}
+
+export async function addPost(post) {
+  if (!isFirebaseConfigured) {
+    const posts = getPosts();
+    posts.unshift(post);
+    savePosts(posts);
+
+    if (post.status === 'finished') {
+      const profile = getProfile();
+      profile.booksRead += 1;
+      saveProfile(profile);
+    }
+    return posts;
+  }
+  
+  const currentUser = auth.currentUser;
+  if (!currentUser || !cachedProfile) return;
+
+  const newPostData = {
+    user: {
+      uid: currentUser.uid,
+      name: cachedProfile.name,
+      username: cachedProfile.username,
+      avatar: cachedProfile.avatar
+    },
+    book: post.book,
+    status: post.status,
+    rating: post.rating,
+    comment: post.comment,
+    likes: 0,
+    likedBy: [],
+    comments: [],
+    timestamp: new Date()
+  };
+
+  await addDoc(collection(db, "posts"), newPostData);
+
+  if (post.status === 'finished') {
+    const profile = getProfile();
+    profile.booksRead += 1;
+    await saveProfile(profile);
+  }
+}
+
+export async function toggleLikePost(postId) {
+  if (!isFirebaseConfigured) {
+    const posts = getPosts();
+    const index = posts.findIndex(p => p.id === postId);
+    if (index !== -1) {
+      const post = posts[index];
+      if (post.likedByUser) {
+        post.likes = Math.max(0, post.likes - 1);
+        post.likedByUser = false;
+      } else {
+        post.likes += 1;
+        post.likedByUser = true;
+      }
+      savePosts(posts);
+    }
+    return posts;
+  }
+
+  const currentUser = auth.currentUser;
+  if (!currentUser) return;
+
+  const postRef = doc(db, "posts", postId);
+  const postSnap = await getDoc(postRef);
+
+  if (postSnap.exists()) {
+    const postData = postSnap.data();
+    const likedBy = postData.likedBy || [];
+    const isLiked = likedBy.includes(currentUser.uid);
+
+    if (isLiked) {
+      await updateDoc(postRef, {
+        likes: increment(-1),
+        likedBy: arrayRemove(currentUser.uid)
+      });
+    } else {
+      await updateDoc(postRef, {
+        likes: increment(1),
+        likedBy: arrayUnion(currentUser.uid)
+      });
+    }
+  }
+}
+
+export async function addCommentToPost(postId, commentText, userProfile) {
+  if (!isFirebaseConfigured) {
+    const posts = getPosts();
+    const index = posts.findIndex(p => p.id === postId);
+    if (index !== -1) {
+      const post = posts[index];
+      const newComment = {
+        id: `c_${Date.now()}`,
+        user: {
+          name: userProfile.name,
+          username: userProfile.username,
+          avatar: userProfile.avatar
+        },
+        text: commentText,
+        timestamp: "Just now"
+      };
+      post.comments.push(newComment);
+      savePosts(posts);
+    }
+    return posts;
+  }
+
+  const currentUser = auth.currentUser;
+  if (!currentUser || !cachedProfile) return;
+
+  const postRef = doc(db, "posts", postId);
+  const newComment = {
+    id: `c_${Date.now()}`,
+    userId: currentUser.uid,
+    user: {
+      name: cachedProfile.name,
+      username: cachedProfile.username,
+      avatar: cachedProfile.avatar
+    },
+    text: commentText,
+    timestamp: "Just now"
+  };
+
+  await updateDoc(postRef, {
+    comments: arrayUnion(newComment)
+  });
+}
+
+export async function updatePost(postId, updatedFields) {
+  if (!isFirebaseConfigured) {
+    const posts = getPosts();
+    const index = posts.findIndex(p => p.id === postId);
+    if (index !== -1) {
+      const post = posts[index];
+      const oldStatus = post.status;
+      const newStatus = updatedFields.status;
+      posts[index] = { ...post, ...updatedFields };
+      savePosts(posts);
+
+      if (oldStatus === 'reading' && newStatus === 'finished') {
+        const profile = getProfile();
+        profile.booksRead += 1;
+        saveProfile(profile);
+      }
+    }
+    return posts;
+  }
+
+  const postRef = doc(db, "posts", postId);
+  const postSnap = await getDoc(postRef);
+
+  if (postSnap.exists()) {
+    const oldStatus = postSnap.data().status;
+    const newStatus = updatedFields.status;
+
+    await updateDoc(postRef, updatedFields);
+
+    if (oldStatus === 'reading' && newStatus === 'finished') {
+      const profile = getProfile();
+      profile.booksRead += 1;
+      await saveProfile(profile);
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// Custom Books Database
+// -------------------------------------------------------------
 export function getCustomBooks() {
-  const data = localStorage.getItem(STORAGE_KEYS.CUSTOM_BOOKS);
-  return data ? JSON.parse(data) : [];
+  if (!isFirebaseConfigured) {
+    const data = localStorage.getItem(STORAGE_KEYS.CUSTOM_BOOKS);
+    return data ? JSON.parse(data) : [];
+  }
+  return cachedCustomBooks;
 }
 
-export function saveCustomBook(book) {
-  const books = getCustomBooks();
-  books.unshift(book);
-  localStorage.setItem(STORAGE_KEYS.CUSTOM_BOOKS, JSON.stringify(books));
+export async function saveCustomBook(book) {
+  if (!isFirebaseConfigured) {
+    const books = getCustomBooks();
+    books.unshift(book);
+    localStorage.setItem(STORAGE_KEYS.CUSTOM_BOOKS, JSON.stringify(books));
+    return book;
+  }
+
+  await addDoc(collection(db, "books"), book);
+  cachedCustomBooks.unshift(book);
   return book;
 }
 
 export function getAllBooks() {
   return [...getCustomBooks(), ...PRESEEDED_BOOKS];
 }
-// Search Open Library by title
+
+// -------------------------------------------------------------
+// Online Library Search Fallbacks
+// -------------------------------------------------------------
 export async function searchOpenLibrary(query) {
   const url = `https://openlibrary.org/search.json?title=${encodeURIComponent(query)}`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const data = await resp.json();
-  // Map Open Library docs to our book format
   return data.docs.map(doc => ({
     id: `ol_${doc.key}`,
     title: doc.title,
@@ -335,7 +745,6 @@ export async function searchOpenLibrary(query) {
   }));
 }
 
-// Search online library (Google Books API with Open Library fallback)
 export async function searchOnlineLibrary(query) {
   if (!query || query.trim().length === 0) return [];
   try {
@@ -375,183 +784,12 @@ export async function searchOnlineLibrary(query) {
   }
 }
 
-
-export function getPosts() {
-  const data = localStorage.getItem(STORAGE_KEYS.POSTS);
-  let posts = [];
-  if (!data) {
-    posts = SEED_POSTS;
-  } else {
-    try {
-      posts = JSON.parse(data);
-    } catch (e) {
-      posts = SEED_POSTS;
-    }
-  }
-
-  // Count unique books for the user 'seraphinareads'
-  const ownPosts = posts.filter(p => p.user && p.user.username === 'seraphinareads');
-  const uniqueBookIds = new Set(ownPosts.map(p => p.book.id));
-
-  // If user has less than 95 books of the preseeded ones, force-add posts for all 100 books
-  if (uniqueBookIds.size < 95) {
-    const injectedPosts = [...posts];
-    PRESEEDED_BOOKS.forEach((book, idx) => {
-      if (!uniqueBookIds.has(book.id)) {
-        const isFinished = idx % 5 !== 0; // Make some reading, most finished
-        const rating = isFinished ? (3 + (idx % 3)) : 0; // rating 3, 4, or 5
-        const comment = isFinished 
-          ? `I absolutely loved reading "${book.title}"! High-fidelity wood shelf zoom testing looks fantastic.` 
-          : `Currently reading "${book.title}" on my beautiful scrolling library shelf!`;
-        
-        injectedPosts.push({
-          id: `injected_${book.id}_${Date.now()}`,
-          user: {
-            name: "Seraphina Vance",
-            username: "seraphinareads",
-            avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
-          },
-          book: book,
-          status: isFinished ? "finished" : "reading",
-          rating: rating,
-          comment: comment,
-          likes: Math.floor(Math.random() * 50) + 10,
-          likedByUser: Math.random() > 0.5,
-          comments: [],
-          timestamp: `${idx + 1} day${idx !== 0 ? 's' : ''} ago`
-        });
-      }
-    });
-    localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(injectedPosts));
-    
-    // Dynamically update user profile booksRead and readingGoal to match the new database size
-    const profile = getProfile();
-    const ownFinishedCount = injectedPosts.filter(p => p.user && p.user.username === 'seraphinareads' && p.status === 'finished').length;
-    profile.booksRead = ownFinishedCount;
-    profile.readingGoal = 100;
-    saveProfile(profile);
-    
-    return injectedPosts;
-  }
-  
-  return posts;
-}
-
-export function savePosts(posts) {
-  localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(posts));
-}
-
-export function addPost(post) {
-  const posts = getPosts();
-  posts.unshift(post);
-  savePosts(posts);
-
-  // If the post is 'finished', let's increment the user's books read count in profile
-  if (post.status === 'finished') {
-    const profile = getProfile();
-    profile.booksRead += 1;
-    saveProfile(profile);
-  }
-  return posts;
-}
-
-export function toggleLikePost(postId) {
-  const posts = getPosts();
-  const index = posts.findIndex(p => p.id === postId);
-  if (index !== -1) {
-    const post = posts[index];
-    if (post.likedByUser) {
-      post.likes = Math.max(0, post.likes - 1);
-      post.likedByUser = false;
-    } else {
-      post.likes += 1;
-      post.likedByUser = true;
-    }
-    savePosts(posts);
-  }
-  return posts;
-}
-
-export function addCommentToPost(postId, commentText, userProfile) {
-  const posts = getPosts();
-  const index = posts.findIndex(p => p.id === postId);
-  if (index !== -1) {
-    const post = posts[index];
-    const newComment = {
-      id: `c_${Date.now()}`,
-      user: {
-        name: userProfile.name,
-        username: userProfile.username,
-        avatar: userProfile.avatar
-      },
-      text: commentText,
-      timestamp: "Just now"
-    };
-    post.comments.push(newComment);
-    savePosts(posts);
-  }
-  return posts;
-}
-
-export function updatePost(postId, updatedFields) {
-  const posts = getPosts();
-  const index = posts.findIndex(p => p.id === postId);
-  if (index !== -1) {
-    const post = posts[index];
-    const oldStatus = post.status;
-    const newStatus = updatedFields.status;
-
-    // Apply updates
-    posts[index] = { ...post, ...updatedFields };
-    savePosts(posts);
-
-    // If transitioned from reading to finished, increment books read count
-    if (oldStatus === 'reading' && newStatus === 'finished') {
-      const profile = getProfile();
-      profile.booksRead += 1;
-      saveProfile(profile);
-    }
-  }
-  return posts;
-}
-
-const SEED_FRIENDS = [
-  {
-    name: "Elara Thorne",
-    username: "elaralovesbooks",
-    avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=150&q=80",
-    status: "reading",
-    bookTitle: "A Court of Thorns and Roses",
-    bookAuthor: "Sarah J. Maas"
-  },
-  {
-    name: "Maeve Sinclair",
-    username: "maeve_reads",
-    avatar: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&q=80",
-    status: "finished",
-    bookTitle: "Iron Flame",
-    bookAuthor: "Rebecca Yarros"
-  },
-  {
-    name: "Oliver Blackwood",
-    username: "oliver_reads",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80",
-    status: "reading",
-    bookTitle: "The Hobbit",
-    bookAuthor: "J.R.R. Tolkien"
-  },
-  {
-    name: "Daisy Bloom",
-    username: "daisybooks",
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80",
-    status: "finished",
-    bookTitle: "Daisy Jones & The Six",
-    bookAuthor: "Taylor Jenkins Reid"
-  }
-];
-
+// -------------------------------------------------------------
+// Friends List Logic
+// -------------------------------------------------------------
 export function getFriendsList() {
-  return SEED_FRIENDS;
+  if (!isFirebaseConfigured) return SEED_FRIENDS;
+  return cachedFriends.length > 0 ? cachedFriends : SEED_FRIENDS;
 }
 
 export function getAllUsers() {
@@ -585,7 +823,7 @@ export function getAllUsers() {
   
   // Add users from posts
   posts.forEach(p => {
-    if (!usersMap.has(p.user.username)) {
+    if (p.user && !usersMap.has(p.user.username)) {
       usersMap.set(p.user.username, {
         name: p.user.name,
         username: p.user.username,
@@ -599,4 +837,195 @@ export function getAllUsers() {
   return Array.from(usersMap.values());
 }
 
+export async function fetchFriends() {
+  if (!isFirebaseConfigured) return SEED_FRIENDS;
+  try {
+    const usersRef = collection(db, "users");
+    const snapshot = await getDocs(usersRef);
+    
+    const friends = [];
+    const currentUser = auth.currentUser;
+    
+    snapshot.forEach(docSnap => {
+      if (currentUser && docSnap.id === currentUser.uid) return;
+      const u = docSnap.data();
+      friends.push({
+        name: u.name,
+        username: u.username,
+        avatar: u.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80",
+        status: u.booksRead > 0 ? "finished" : "reading",
+        bookTitle: u.booksRead > 0 ? "A good book" : "Just started reading",
+        bookAuthor: "Featured Author"
+      });
+    });
+    
+    cachedFriends = friends.length > 0 ? friends : SEED_FRIENDS;
+    return cachedFriends;
+  } catch (error) {
+    console.error("Failed to fetch friends from Firestore:", error);
+    return SEED_FRIENDS;
+  }
+}
 
+// -------------------------------------------------------------
+// Authentication API Operations
+// -------------------------------------------------------------
+export async function signUpUser(email, password, displayName, username) {
+  if (!isFirebaseConfigured) {
+    return { uid: "mock_user_123", email, displayName };
+  }
+
+  // 1. Create firebase user
+  const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+  const user = userCredential.user;
+
+  // 2. Set profile display name
+  await updateProfile(user, { displayName });
+
+  // 3. Set document in Firestore
+  const cleanUsername = username.toLowerCase().replace(/\s+/g, '');
+  const profile = {
+    name: displayName,
+    username: cleanUsername,
+    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80",
+    cover: "https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&w=1200&q=80",
+    bio: "Spicy romance enthusiast. Always reading past my bedtime. ☕️✨",
+    readingGoal: 50,
+    booksRead: 0
+  };
+
+  await setDoc(doc(db, "users", user.uid), profile);
+  cachedProfile = profile;
+
+  return user;
+}
+
+export async function signInUser(email, password) {
+  if (!isFirebaseConfigured) {
+    return { uid: "mock_user_123", email, displayName: "Seraphina Vance" };
+  }
+  return await signInWithEmailAndPassword(auth, email, password);
+}
+
+export async function signOutUser() {
+  if (!isFirebaseConfigured) return;
+  await signOut(auth);
+}
+
+export function subscribeToAuthChanges(callback) {
+  if (!isFirebaseConfigured) {
+    // Return a mock user for instant preview
+    setTimeout(() => {
+      callback({
+        uid: "mock_user_123",
+        email: "seraphina@example.com",
+        displayName: "Seraphina Vance"
+      });
+    }, 200);
+    return () => {};
+  }
+
+  return onAuthStateChanged(auth, async (firebaseUser) => {
+    if (firebaseUser) {
+      try {
+        const userDocRef = doc(db, "users", firebaseUser.uid);
+        const userDocSnap = await getDoc(userDocRef);
+
+        if (userDocSnap.exists()) {
+          cachedProfile = userDocSnap.data();
+        } else {
+          // Fallback doc creation
+          const defaultProf = {
+            name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+            username: firebaseUser.email.split('@')[0].toLowerCase(),
+            avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80",
+            cover: "https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&w=1200&q=80",
+            bio: "Spicy romance enthusiast. Always reading past my bedtime. ☕️✨",
+            readingGoal: 50,
+            booksRead: 0
+          };
+          await setDoc(userDocRef, defaultProf);
+          cachedProfile = defaultProf;
+        }
+        
+        // Fetch custom friends list async
+        fetchFriends();
+      } catch (err) {
+        console.error("Error setting up authenticated user profile:", err);
+      }
+      callback(firebaseUser);
+    } else {
+      cachedProfile = null;
+      callback(null);
+    }
+  });
+}
+
+// -------------------------------------------------------------
+// Utilities
+// -------------------------------------------------------------
+function formatFirestoreTimestamp(ts) {
+  if (!ts) return "Just now";
+  const date = ts.toDate ? ts.toDate() : new Date(ts);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays === 1) return "Yesterday";
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+async function seedFirestoreDatabase() {
+  try {
+    console.log("Firestore database is empty. Auto-seeding default content...");
+    const batch = writeBatch(db);
+
+    SEED_POSTS.forEach((post) => {
+      let ts = new Date();
+      if (post.timestamp.includes("3 hours")) {
+        ts.setHours(ts.getHours() - 3);
+      } else if (post.timestamp.includes("6 hours")) {
+        ts.setHours(ts.getHours() - 6);
+      } else if (post.timestamp.includes("Yesterday")) {
+        ts.setDate(ts.getDate() - 1);
+      }
+
+      const postRef = doc(collection(db, "posts"));
+      batch.set(postRef, {
+        user: {
+          uid: "seed_user_" + post.user.username,
+          name: post.user.name,
+          username: post.user.username,
+          avatar: post.user.avatar
+        },
+        book: post.book,
+        status: post.status,
+        rating: post.rating,
+        comment: post.comment,
+        likes: post.likes,
+        likedBy: [],
+        comments: post.comments.map(c => ({
+          id: c.id,
+          user: {
+            name: c.user.name,
+            username: c.user.username,
+            avatar: c.user.avatar
+          },
+          text: c.text,
+          timestamp: c.timestamp
+        })),
+        timestamp: ts
+      });
+    });
+
+    await batch.commit();
+    console.log("Database successfully seeded!");
+  } catch (err) {
+    console.error("Failed to seed database:", err);
+  }
+}

@@ -2591,6 +2591,7 @@ header {
   pointer-events: none; /* Disable book clicks/hovers during drag */
 }
 
+
 /* Library Wall (Horizontal container for bookcase bays) */
 .library-grid:not(.zoomed-active) {
   display: flex;
@@ -2615,12 +2616,16 @@ header {
 
 .library-wall {
   display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  width: max-content;
+  flex-direction: column;
   position: relative;
   z-index: 5;
-  height: 570px; /* Aligned for 4 rows + ledges */
+  width: max-content;
+  min-width: 100%;
+  height: auto;
+  background: rgba(30, 15, 17, 0.25); /* Darker backdrop inside the shelf */
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.55);
+  padding: 24px 0 0; /* Remove bottom padding so the bottom shelf touches the base of the pillars */
+  box-sizing: border-box;
 }
 
 /* Bookcase Upright Divider (Vertical Wood Pillar) */
@@ -2631,66 +2636,56 @@ header {
     inset 1px 0 2px rgba(255, 255, 255, 0.15),
     inset -1px 0 2px rgba(0, 0, 0, 0.4),
     3px 0 8px rgba(0, 0, 0, 0.4);
-  flex-shrink: 0;
-  height: 100%;
-  border-radius: 3px;
-  position: relative;
+  position: absolute;
+  top: 0;
+  bottom: 0;
   z-index: 10;
-}
-
-/* Individual Bookcase Bay */
-.bookshelf-bay {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  width: 290px; /* Width of a single bookcase unit */
-  flex-shrink: 0;
-  padding: 12px 14px;
-  background: rgba(30, 15, 17, 0.25); /* Darker backdrop inside the shelf */
-  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.55);
-  position: relative;
-}
-
-/* Shelf Row inside a Bay (Zoomed out) */
-.bay-shelf-row {
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-start;
-  gap: 4px;
-  height: 96px; /* Small book height area */
-  width: 100%;
-  padding-bottom: 2px;
-  cursor: pointer;
-  z-index: 6;
-  overflow: hidden;
-  transition: transform 0.2s ease;
-}
-
-.bay-shelf-row:hover {
-  transform: translateY(-2px);
-}
-
-/* Wood Shelf under each Bay Row */
-.bookshelf-bay .bookshelf-wood {
-  height: 12px;
-  margin-top: 0;
-  margin-bottom: 16px; /* Spacing between shelves */
-  background: linear-gradient(to bottom, #8C583A 0%, #5C3821 100%);
   border-radius: 2px;
-  box-shadow: 
-    0 3px 6px rgba(0,0,0,0.3),
-    inset 0 1px 1px rgba(255,255,255,0.25);
-  border-bottom: 2px solid #3E2413;
-  flex-shrink: 0;
 }
 
-/* Last wood shelf margin adjustment */
-.bookshelf-bay .bookshelf-wood:last-child {
+/* Override bookshelf row styles inside library-wall for the zoomed-out layout */
+.library-wall .bookshelf-container:not(.zoomed) .bookshelf-row {
+  min-height: 96px;
+  height: 96px;
+  cursor: pointer;
+  padding: 0;
+  overflow: visible;
+  scrollbar-width: none;
+}
+.library-wall .bookshelf-container:not(.zoomed) .bookshelf-row::-webkit-scrollbar {
+  display: none;
+}
+
+.library-wall .bookshelf-container:not(.zoomed) .bookshelf-wood {
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+.library-wall .bookshelf-container:not(.zoomed):last-child .bookshelf-wood {
   margin-bottom: 0;
 }
 
-/* Zoomed-Out Book style inside Bay */
-.bookshelf-bay .bookshelf-book {
+/* Shelf Bay Segment inside horizontal row */
+.shelf-bay-segment {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  width: 282px; /* Fixed width of each shelf bay section */
+  height: 96px; /* Small book height area */
+  flex-shrink: 0;
+  padding: 0 10px;
+  z-index: 5;
+  box-sizing: border-box;
+}
+
+/* Spacer where vertical upright pillar sits */
+.upright-spacer {
+  width: 18px;
+  flex-shrink: 0;
+  height: 100%;
+}
+
+/* Zoomed-Out Book style inside shelf segment */
+.shelf-bay-segment .bookshelf-book {
   height: 80px !important; /* Tiny book height */
   width: calc(var(--book-thickness, 45px) * 0.5) !important;
   transition: all 0.2s ease;
@@ -2700,11 +2695,11 @@ header {
   box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.35);
 }
 
-.bookshelf-bay .bookshelf-book .book-spine {
+.shelf-bay-segment .bookshelf-book .book-spine {
   padding: 6px 1px;
 }
 
-.bookshelf-bay .bookshelf-book .book-spine-title {
+.shelf-bay-segment .bookshelf-book .book-spine-title {
   font-size: 0.45rem !important;
   font-weight: 700;
   letter-spacing: 0.2px;
@@ -2712,15 +2707,15 @@ header {
   max-height: 60px;
 }
 
-.bookshelf-bay .bookshelf-book .book-spine-author {
+.shelf-bay-segment .bookshelf-book .book-spine-author {
   display: none !important; /* Hide author on tiny spines */
 }
 
-.bookshelf-bay .bookshelf-book .book-cover-overlay {
+.shelf-bay-segment .bookshelf-book .book-cover-overlay {
   display: none !important; /* Hide cover overlay when zoomed out */
 }
 
-.bookshelf-bay .bookshelf-book .book-spine-accent-line {
+.shelf-bay-segment .bookshelf-book .book-spine-accent-line {
   height: 3px;
   margin-bottom: 4px;
 }
@@ -2744,6 +2739,148 @@ header {
 /* Library wide navigation buttons adjustment */
 .library-grid:not(.zoomed-active) .shelf-nav-btn {
   top: calc(50% - 19px); /* Center vertically relative to the entire library grid */
+}
+/* ==========================================
+   Authentication Screen Styles
+   ========================================== */
+.auth-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  width: 100%;
+  background-color: var(--color-bg);
+  background-image: radial-gradient(circle at 10% 20%, rgba(245, 230, 232, 0.4) 0%, transparent 90%);
+  padding: 24px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+  overflow-y: auto;
+}
+
+.auth-card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 40px;
+  width: 100%;
+  max-width: 450px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.auth-logo {
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.auth-logo span {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--color-accent);
+}
+
+.auth-title {
+  font-size: 1.5rem;
+  color: var(--color-primary);
+  text-align: center;
+  margin-top: -8px;
+}
+
+.auth-subtitle {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  text-align: center;
+  margin-top: -16px;
+  line-height: 1.5;
+}
+
+.auth-error {
+  background-color: rgba(140, 46, 60, 0.05);
+  border: 1px solid rgba(140, 46, 60, 0.2);
+  color: var(--color-primary);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 500;
+  margin-top: 4px;
+  line-height: 1.4;
+  animation: shake 0.4s ease-in-out;
+}
+
+.auth-submit-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  margin-top: 8px;
+}
+
+.auth-switch {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin-top: 8px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 20px;
+}
+
+.btn-link {
+  background: transparent;
+  border: none;
+  color: var(--color-primary);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 4px;
+  transition: var(--transition);
+  font-size: 0.85rem;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+  color: #73232f;
+}
+
+/* Header Sign Out Button Styling */
+.btn-signout-nav {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.btn-signout-nav:hover {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  transform: scale(1.05);
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
 }
 
 
