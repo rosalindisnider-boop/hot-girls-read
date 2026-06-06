@@ -1783,7 +1783,7 @@ function setupEventListeners() {
     clearTimeout(searchTimeoutId);
     searchTimeoutId = setTimeout(async () => {
       // Ensure the user hasn't cleared the input in the meantime
-      if (bookSearchInput.value.trim() !== val) return;
+      if (bookSearchInput.value.toLowerCase().trim() !== val) return;
 
       try {
         const matches = await searchOnlineLibrary(val);
