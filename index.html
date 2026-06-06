@@ -115,7 +115,10 @@
       <div class="library-view-container" id="library-view-container" style="display: none;">
         <div class="card" style="margin-bottom: 24px; padding: 20px; display: flex; align-items: center; justify-content: space-between;">
           <h2 class="library-title" style="font-family: var(--font-serif); color: var(--color-primary); font-size: 1.5rem; margin: 0;">My Library</h2>
-          <button class="btn-secondary" id="btn-library-zoom-out" style="display: none; font-size: 0.85rem; padding: 6px 16px;">← View All Shelves</button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-secondary" id="btn-library-zoom-out" style="display: none; font-size: 0.85rem; padding: 6px 16px;">← View All Shelves</button>
+            <button class="btn-primary" id="btn-library-add-mock" style="font-size: 0.85rem; padding: 6px 16px; background-color: var(--color-accent); border-color: var(--color-accent);">🌸 Add 50 Test Books</button>
+          </div>
         </div>
         <div class="library-grid" id="library-grid">
           <!-- Populated dynamically with covers only -->

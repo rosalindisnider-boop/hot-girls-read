@@ -141,6 +141,7 @@ const btnTabLibrary = document.getElementById('btn-tab-library');
 const libraryViewContainer = document.getElementById('library-view-container');
 const libraryGrid = document.getElementById('library-grid');
 const btnLibraryZoomOut = document.getElementById('btn-library-zoom-out');
+const btnLibraryAddMock = document.getElementById('btn-library-add-mock');
 
 // Refresh Page Logo Link
 const logoRefresh = document.getElementById('logo-refresh');
@@ -2071,6 +2072,62 @@ function setupEventListeners() {
     btnLibraryZoomOut.addEventListener('click', () => {
       zoomedShelfIndex = null;
       renderLibrary();
+    });
+  }
+
+  if (btnLibraryAddMock) {
+    btnLibraryAddMock.addEventListener('click', async () => {
+      const mockBooks = [];
+      const genres = ["Fiction", "Romance", "Mystery", "Thriller", "Sci-Fi", "Fantasy", "Biography", "History", "Self-Help", "Poetry"];
+      const adjectives = ["Beautiful", "Dark", "Silent", "Hidden", "Golden", "Midnight", "Lost", "Wild", "Sweet", "Bitter", "Secret", "Fallen", "Rising", "Ancient", "Broken"];
+      const nouns = ["Girls", "Library", "Secrets", "Dreams", "Shadows", "Stars", "Hearts", "Winds", "Rivers", "Cities", "Witches", "Roses", "Songs", "Clues", "Stories"];
+      
+      for (let i = 1; i <= 50; i++) {
+        const title = `${adjectives[i % adjectives.length]} ${nouns[i % nouns.length]} (Vol. ${i})`;
+        const author = `Author ${String.fromCharCode(65 + (i % 26))}. Writer`;
+        const genre = genres[i % genres.length];
+        const pages = 200 + (i * 7) % 300;
+        mockBooks.push({
+          id: `mock_book_${i}_${Date.now()}`,
+          title: title,
+          author: author,
+          cover: `https://picsum.photos/seed/book${i}/200/300`,
+          genre: genre,
+          pages: pages,
+          description: `A wonderful test book titled ${title} for verifying the horizontal shelf layout scrolling.`
+        });
+      }
+      
+      btnLibraryAddMock.disabled = true;
+      let count = 0;
+      btnLibraryAddMock.innerHTML = `Adding 0/50...`;
+      for (const book of mockBooks) {
+        const newPost = {
+          id: `mock_post_${count}_${Date.now()}`,
+          user: {
+            name: userProfile ? userProfile.name : "Anonymous",
+            username: userProfile ? userProfile.username : "me",
+            avatar: userProfile ? userProfile.avatar : ""
+          },
+          book: book,
+          status: "finished",
+          rating: 5,
+          comment: "Added automatically for testing horizontal shelves.",
+          likes: 0,
+          likedByUser: false,
+          comments: [],
+          timestamp: "Just now"
+        };
+        await addPost(newPost);
+        count++;
+        btnLibraryAddMock.innerHTML = `Adding ${count}/50...`;
+      }
+      btnLibraryAddMock.innerHTML = `🌸 Added 50 Test Books!`;
+      loadProfile();
+      renderLibrary();
+      if (!isFirebaseConfigured) {
+        renderFeed();
+      }
     });
   }
 
