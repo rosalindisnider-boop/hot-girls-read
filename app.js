@@ -1,4 +1,4 @@
-import { getProfile, saveProfile, getPosts, addPost, toggleLikePost, addCommentToPost, getAllBooks, saveCustomBook, getCustomBooks, searchOnlineLibrary, updatePost, getFriendsList } from './storage.js';
+import { getProfile, saveProfile, getPosts, addPost, toggleLikePost, addCommentToPost, getAllBooks, saveCustomBook, getCustomBooks, searchOnlineLibrary, updatePost, getFriendsList, getAllUsers } from './storage.js?v=4';
 
 // Application State
 let currentFilter = 'all';
@@ -8,7 +8,12 @@ let userProfile = null;
 let searchTimeoutId = null;
 let editingPostId = null;
 let currentView = 'feed';
+let previousView = 'feed';
+let browseSearchQuery = '';
+let browseCategorySelected = 'all';
 let currentProfileTab = 'bookshelf';
+let viewedProfileUser = null; // stores username when viewing other profiles, or null for own profile
+let zoomedShelfIndex = null; // tracks which shelf index is currently zoomed in, or null if zoomed out
 
 // DOM Elements
 const navAvatar = document.getElementById('nav-profile-avatar');
@@ -48,11 +53,54 @@ const ratingFormGroup = document.getElementById('rating-form-group');
 const ratingStarsInteractive = document.getElementById('rating-stars-interactive');
 const postCommentTextarea = document.getElementById('post-comment');
 
+// Book Details Modal Elements
+const bookDetailsModalOverlay = document.getElementById('book-details-modal-overlay');
+const btnCloseBookDetails = document.getElementById('btn-close-book-details');
+const btnDetLogProgress = document.getElementById('btn-det-log-progress');
+const bookDetCover = document.getElementById('book-det-cover');
+const bookDetTitle = document.getElementById('book-det-title');
+const bookDetAuthor = document.getElementById('book-det-author');
+const bookDetGenre = document.getElementById('book-det-genre');
+const bookDetPages = document.getElementById('book-det-pages');
+const bookDetAvgRating = document.getElementById('book-det-avg-rating');
+const bookDetDescription = document.getElementById('book-det-description');
+const bookDetReviews = document.getElementById('book-det-reviews');
+
 // Add Custom Book Form
 const customBookForm = document.getElementById('custom-book-form');
 const customTitleInput = document.getElementById('custom-title');
 const customAuthorInput = document.getElementById('custom-author');
 const customGenreInput = document.getElementById('custom-genre');
+
+// Browse View & Full Page Book Details DOM Selections
+const btnTabBrowse = document.getElementById('btn-tab-browse');
+const browseView = document.getElementById('browse-view');
+const browseSearchInput = document.getElementById('browse-search-input');
+const btnBrowseSearchSubmit = document.getElementById('btn-browse-search-submit');
+const browseFilterType = document.getElementById('browse-filter-type');
+const browseFilterCategory = document.getElementById('browse-filter-category');
+const browseFilterSort = document.getElementById('browse-filter-sort');
+const browseCategoriesSection = document.getElementById('browse-categories-section');
+const browseResultsContainer = document.getElementById('browse-results-container');
+const browseResultsSummaryText = document.getElementById('browse-results-summary-text');
+const btnBrowseReset = document.getElementById('btn-browse-reset');
+const browseResultsUsersSection = document.getElementById('browse-results-users-section');
+const browseResultsUsersList = document.getElementById('browse-results-users-list');
+const browseResultsBooksSection = document.getElementById('browse-results-books-section');
+const browseResultsBooksGrid = document.getElementById('browse-results-books-grid');
+const browseResultsEmpty = document.getElementById('browse-results-empty');
+
+const bookDetailsPageView = document.getElementById('book-details-page-view');
+const btnBookDetailsBack = document.getElementById('btn-book-details-back');
+const bookPageCover = document.getElementById('book-page-cover');
+const bookPageTitle = document.getElementById('book-page-title');
+const bookPageAuthor = document.getElementById('book-page-author');
+const bookPageGenre = document.getElementById('book-page-genre');
+const bookPagePages = document.getElementById('book-page-pages');
+const bookPageAvgRating = document.getElementById('book-page-avg-rating');
+const bookPageDescription = document.getElementById('book-page-description');
+const bookPageReviews = document.getElementById('book-page-reviews');
+const btnPageLogProgress = document.getElementById('btn-page-log-progress');
 
 // Profile View Elements
 const profileDashboardView = document.getElementById('profile-dashboard-view');
@@ -79,6 +127,15 @@ const profileTabButtons = document.querySelectorAll('.profile-tab-btn');
 const bookshelfGrid = document.getElementById('bookshelf-grid');
 const friendsDashboardGrid = document.getElementById('friends-dashboard-grid');
 
+// Header nav tabs
+const btnTabFeed = document.getElementById('btn-tab-feed');
+const btnTabLibrary = document.getElementById('btn-tab-library');
+
+// Library View Elements
+const libraryViewContainer = document.getElementById('library-view-container');
+const libraryGrid = document.getElementById('library-grid');
+const btnLibraryZoomOut = document.getElementById('btn-library-zoom-out');
+
 // Refresh Page Logo Link
 const logoRefresh = document.getElementById('logo-refresh');
 
@@ -91,46 +148,91 @@ function init() {
 }
 
 // Load Profile Info
+// Load Logged-in Profile Info for Sidebar/Navbar
 function loadProfile() {
-  userProfile = getProfile();
+  const loggedInProfile = getProfile();
+  userProfile = loggedInProfile; // Maintain backward compatibility
   
   // Set navbar avatar
   if (navAvatar) {
-    navAvatar.src = userProfile.avatar;
-    navAvatar.alt = `${userProfile.name}'s Avatar`;
+    navAvatar.src = loggedInProfile.avatar;
+    navAvatar.alt = `${loggedInProfile.name}'s Avatar`;
   }
   
-  // Set profile card
+  // Set left sidebar profile card
   if (profileAvatar) {
-    profileAvatar.src = userProfile.avatar;
-    profileAvatar.alt = `${userProfile.name}'s Avatar`;
+    profileAvatar.src = loggedInProfile.avatar;
+    profileAvatar.alt = `${loggedInProfile.name}'s Avatar`;
   }
-  if (profileName) profileName.textContent = userProfile.name;
-  if (profileUsername) profileUsername.textContent = `@${userProfile.username}`;
-  if (profileBio) profileBio.textContent = userProfile.bio;
-  if (profileBooksCount) profileBooksCount.textContent = userProfile.booksRead;
-  if (profileGoalCount) profileGoalCount.textContent = userProfile.readingGoal;
+  if (profileName) profileName.textContent = loggedInProfile.name;
+  if (profileUsername) profileUsername.textContent = `@${loggedInProfile.username}`;
+  if (profileBio) profileBio.textContent = loggedInProfile.bio;
+  if (profileBooksCount) profileBooksCount.textContent = loggedInProfile.booksRead;
+  if (profileGoalCount) profileGoalCount.textContent = loggedInProfile.readingGoal;
+
+  updateCurrentlyReadingWidget(loggedInProfile.username);
+}
+
+// Load profile details into the Center Column Profile Dashboard View
+function loadProfileDashboard() {
+  const loggedInProfile = getProfile();
+  let targetProfile = loggedInProfile;
+  const isOwnProfile = !viewedProfileUser || viewedProfileUser === loggedInProfile.username;
+
+  if (!isOwnProfile) {
+    const allUsers = getAllUsers();
+    const foundUser = allUsers.find(u => u.username === viewedProfileUser);
+    if (foundUser) {
+      targetProfile = {
+        ...foundUser,
+        booksRead: getPosts().filter(p => p.user.username === viewedProfileUser && p.status === 'finished').length,
+        readingGoal: foundUser.readingGoal || 50,
+        cover: foundUser.cover || "https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&w=1200&q=80"
+      };
+    }
+  }
 
   // Set Profile Dashboard View details
   if (profileAvatarDashboard) {
-    profileAvatarDashboard.src = userProfile.avatar;
-    profileAvatarDashboard.alt = `${userProfile.name}'s Avatar`;
+    profileAvatarDashboard.src = targetProfile.avatar;
+    profileAvatarDashboard.alt = `${targetProfile.name}'s Avatar`;
   }
-  if (profileNameDisplay) profileNameDisplay.textContent = userProfile.name;
-  if (profileUsernameDisplay) profileUsernameDisplay.textContent = `@${userProfile.username}`;
-  if (profileBioDisplay) profileBioDisplay.textContent = userProfile.bio;
+  if (profileNameDisplay) profileNameDisplay.textContent = targetProfile.name;
+  if (profileUsernameDisplay) profileUsernameDisplay.textContent = `@${targetProfile.username}`;
+  if (profileBioDisplay) profileBioDisplay.textContent = targetProfile.bio;
   if (profileCoverBanner) {
-    profileCoverBanner.style.backgroundImage = `url('${userProfile.cover || "https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&w=1200&q=80"}')`;
+    profileCoverBanner.style.backgroundImage = `url('${targetProfile.cover}')`;
   }
 
-  updateCurrentlyReadingWidget();
+  // Toggle Edit Profile Button vs Friend Badge
+  if (btnEditProfileBtn) {
+    btnEditProfileBtn.style.display = isOwnProfile ? 'inline-flex' : 'none';
+  }
+
+  // Handle a follow/friend badge for other users
+  let friendBadge = document.getElementById('profile-friend-badge');
+  if (!isOwnProfile) {
+    if (!friendBadge) {
+      friendBadge = document.createElement('span');
+      friendBadge.id = 'profile-friend-badge';
+      friendBadge.className = 'profile-status-badge-custom';
+      friendBadge.textContent = 'Friend';
+      // Append it right next to edit profile button
+      if (btnEditProfileBtn && btnEditProfileBtn.parentNode) {
+        btnEditProfileBtn.parentNode.appendChild(friendBadge);
+      }
+    }
+    if (friendBadge) friendBadge.style.display = 'inline-flex';
+  } else if (friendBadge) {
+    friendBadge.style.display = 'none';
+  }
 }
 
 // Update the Left Sidebar "Currently Reading" Widget
-function updateCurrentlyReadingWidget() {
+function updateCurrentlyReadingWidget(username) {
   const posts = getPosts();
   // Find latest post with status "reading"
-  const activeReadPost = posts.find(p => p.status === 'reading' && p.user.username === userProfile.username);
+  const activeReadPost = posts.find(p => p.status === 'reading' && p.user.username === username);
 
   if (activeReadPost) {
     currentlyReadingCard.style.display = 'block';
@@ -174,7 +276,7 @@ function renderTrendingBooks() {
     `;
     
     item.addEventListener('click', () => {
-      openPostModal(book);
+      openBookDetailsModal(book);
     });
     
     sidebarTrendingBooks.appendChild(item);
@@ -231,10 +333,10 @@ function renderFeed() {
         <div class="comment-list">
           ${post.comments.map(c => `
             <div class="comment-item">
-              <img class="comment-avatar" src="${c.user.avatar}" alt="${c.user.name}">
+              <img class="comment-avatar user-profile-link" data-username="${c.user.username}" src="${c.user.avatar}" alt="${c.user.name}" style="cursor: pointer;">
               <div class="comment-body">
                 <div>
-                  <span class="comment-user-name">${c.user.name}</span>
+                  <span class="comment-user-name user-profile-link" data-username="${c.user.username}" style="cursor: pointer;">${c.user.name}</span>
                   <span class="comment-text">${escapeHTML(c.text)}</span>
                 </div>
                 <div class="comment-meta">${c.timestamp || 'Just now'}</div>
@@ -246,7 +348,7 @@ function renderFeed() {
     }
 
     postCard.innerHTML = `
-      <div class="post-header">
+      <div class="post-header user-profile-link" data-username="${post.user.username}" style="cursor: pointer;">
         <img class="post-avatar" src="${post.user.avatar}" alt="${post.user.name}">
         <div class="post-user-info">
           <span class="post-user-name">${post.user.name}</span>
@@ -385,6 +487,97 @@ function closeModal() {
   resetStars();
 }
 
+// Open Book Details Modal Panel
+function openBookDetailsModal(book) {
+  selectedBookForPost = book; // Cache for the "Post Update" button
+  
+  if (bookDetailsModalOverlay) {
+    bookDetailsModalOverlay.classList.add('active');
+    document.body.style.overflow = 'hidden';
+  }
+
+  // Populate basic info
+  if (bookDetCover) bookDetCover.src = book.cover;
+  if (bookDetTitle) bookDetTitle.textContent = book.title;
+  if (bookDetAuthor) bookDetAuthor.textContent = `by ${book.author}`;
+  if (bookDetGenre) bookDetGenre.textContent = book.genre || 'General';
+  if (bookDetPages) bookDetPages.textContent = book.pages || 300;
+  if (bookDetDescription) {
+    bookDetDescription.textContent = book.description || 
+      `An exciting and deeply moving selection from our library collection, "${book.title}" explores themes of love, personal growth, and self-discovery.`;
+  }
+
+  // Fetch reviews from feed posts
+  const posts = getPosts();
+  const bookReviews = posts.filter(p => p.book.title.toLowerCase() === book.title.toLowerCase());
+
+  // Calculate Average Rating
+  const finishedRatings = bookReviews.filter(p => p.status === 'finished' && p.rating > 0);
+  if (finishedRatings.length > 0) {
+    const totalRating = finishedRatings.reduce((sum, p) => sum + p.rating, 0);
+    const avg = (totalRating / finishedRatings.length).toFixed(1);
+    if (bookDetAvgRating) bookDetAvgRating.textContent = `${avg} ★`;
+  } else {
+    if (bookDetAvgRating) bookDetAvgRating.textContent = '0.0';
+  }
+
+  // Populate Reviews List
+  if (bookDetReviews) {
+    bookDetReviews.innerHTML = '';
+    
+    // Filter posts that have comments or ratings
+    const validReviews = bookReviews.filter(p => p.comment || p.rating > 0);
+
+    if (validReviews.length === 0) {
+      bookDetReviews.innerHTML = `
+        <div style="text-align: center; padding: 20px; color: var(--color-text-muted); font-size: 0.85rem;">
+          No reviews for this book yet. Be the first to share your thoughts!
+        </div>
+      `;
+    } else {
+      validReviews.forEach(rev => {
+        const reviewEl = document.createElement('div');
+        reviewEl.className = 'book-review-item';
+
+        let starsHtml = '';
+        if (rev.status === 'finished' && rev.rating > 0) {
+          starsHtml = '<div class="review-rating">';
+          for (let s = 1; s <= 5; s++) {
+            starsHtml += `<span class="star ${s <= rev.rating ? 'filled' : ''}">★</span>`;
+          }
+          starsHtml += '</div>';
+        }
+
+        const badgeLabel = rev.status === 'reading' ? 'Reading' : 'Finished';
+        const badgeClass = rev.status === 'reading' ? 'reading' : 'finished';
+
+        reviewEl.innerHTML = `
+          <div class="review-header">
+            <img class="review-avatar" src="${rev.user.avatar}" alt="${rev.user.name}">
+            <div style="display: flex; flex-direction: column;">
+              <span class="review-user-name">${rev.user.name}</span>
+              <span style="font-size: 0.7rem; color: var(--color-text-muted);">@${rev.user.username}</span>
+            </div>
+            <span class="review-badge ${badgeClass}" style="margin-left: 10px;">${badgeLabel}</span>
+            <span class="review-meta">${rev.timestamp || 'Recent'}</span>
+          </div>
+          ${starsHtml}
+          <p class="review-text">${escapeHTML(rev.comment || 'No comment written.')}</p>
+        `;
+        bookDetReviews.appendChild(reviewEl);
+      });
+    }
+  }
+}
+
+// Close Book Details Modal Panel
+function closeBookDetailsModal() {
+  if (bookDetailsModalOverlay) {
+    bookDetailsModalOverlay.classList.remove('active');
+    document.body.style.overflow = '';
+  }
+}
+
 // Select Book for Post Creation
 function selectBook(book) {
   selectedBookForPost = book;
@@ -420,31 +613,610 @@ function resetStars() {
   stars.forEach(s => s.classList.remove('active', 'hover'));
 }
 
-// Switch views between Feed and Profile
-function switchView(viewName) {
+// Switch views between Feed, Library, Profile, Browse, and Book Details Page
+function switchView(viewName, extraParam = null) {
+  if (viewName !== currentView) {
+    previousView = currentView;
+  }
   currentView = viewName;
-  if (viewName === 'profile') {
+  
+  // Update nav tabs active state
+  if (btnTabFeed) btnTabFeed.classList.toggle('active', viewName === 'feed');
+  if (btnTabLibrary) btnTabLibrary.classList.toggle('active', viewName === 'library');
+  if (btnTabBrowse) btnTabBrowse.classList.toggle('active', viewName === 'browse');
+
+  // Hide edit profile form if it was open
+  if (editProfileForm) editProfileForm.style.display = 'none';
+
+  // Hide new page views by default
+  if (browseView) browseView.style.display = 'none';
+  if (bookDetailsPageView) bookDetailsPageView.style.display = 'none';
+
+  if (viewName === 'feed') {
+    viewedProfileUser = null;
+    // Show Feed elements
+    btnNewPostTrigger.style.display = 'flex';
+    feedFilters.style.display = 'flex';
+    feedContainer.style.display = 'block';
+    
+    // Hide others
+    libraryViewContainer.style.display = 'none';
+    profileDashboardView.style.display = 'none';
+  } else if (viewName === 'library') {
+    viewedProfileUser = null;
     // Hide Feed elements
     btnNewPostTrigger.style.display = 'none';
     feedFilters.style.display = 'none';
     feedContainer.style.display = 'none';
+    
+    // Show Library View
+    libraryViewContainer.style.display = 'flex';
+    
+    // Hide Profile Dashboard
+    profileDashboardView.style.display = 'none';
+    
+    // Reset shelf zoom state
+    zoomedShelfIndex = null;
+    
+    // Render Library Books
+    renderLibrary();
+  } else if (viewName === 'profile') {
+    viewedProfileUser = extraParam;
+    // Hide Feed elements
+    btnNewPostTrigger.style.display = 'none';
+    feedFilters.style.display = 'none';
+    feedContainer.style.display = 'none';
+    
+    // Hide Library View
+    libraryViewContainer.style.display = 'none';
     
     // Show Profile Dashboard
     profileDashboardView.style.display = 'flex';
     
     // Render Profile Contents
     renderProfileDashboard();
-  } else {
-    // Show Feed elements
-    btnNewPostTrigger.style.display = 'flex';
-    feedFilters.style.display = 'flex';
-    feedContainer.style.display = 'flex';
-    
-    // Hide Profile Dashboard
+  } else if (viewName === 'browse') {
+    // Hide Feed, Library, Profile Views
+    btnNewPostTrigger.style.display = 'none';
+    feedFilters.style.display = 'none';
+    feedContainer.style.display = 'none';
+    libraryViewContainer.style.display = 'none';
     profileDashboardView.style.display = 'none';
+
+    // Show browse view
+    if (browseView) browseView.style.display = 'block';
     
-    // Close Edit panel if open
-    editProfileForm.style.display = 'none';
+    // Reset browse view back to category list if no search query is active
+    if (!extraParam && !browseSearchQuery && browseCategorySelected === 'all') {
+      resetBrowseSearch();
+    } else if (extraParam) {
+      executeBrowseSearch(extraParam);
+    }
+  } else if (viewName === 'book_details') {
+    // Hide Feed, Library, Profile Views
+    btnNewPostTrigger.style.display = 'none';
+    feedFilters.style.display = 'none';
+    feedContainer.style.display = 'none';
+    libraryViewContainer.style.display = 'none';
+    profileDashboardView.style.display = 'none';
+
+    // Show full details page view
+    if (bookDetailsPageView) bookDetailsPageView.style.display = 'block';
+    renderBookDetailsPage(extraParam);
+  }
+}
+
+// Perform catalog browse search with custom filters (target, category, sort)
+function executeBrowseSearch(categoryParam = null) {
+  // If categoryParam is provided (clicked a category card), set filters
+  if (categoryParam) {
+    browseFilterCategory.value = categoryParam;
+    browseFilterType.value = 'book';
+    browseSearchInput.value = '';
+  }
+
+  const query = browseSearchInput.value.trim();
+  const searchType = browseFilterType.value; // all, book, account
+  const category = browseFilterCategory.value; // all, romance, fantasy, thriller, fiction, dystopian, classics
+  const sortBy = browseFilterSort.value; // relevance, title, rating, pages
+
+  browseSearchQuery = query;
+  browseCategorySelected = category;
+
+  // Toggle visible sections
+  if (browseCategoriesSection) browseCategoriesSection.style.display = 'none';
+  if (browseResultsContainer) browseResultsContainer.style.display = 'block';
+
+  // Construct summary status text
+  let summaryText = 'Showing results';
+  if (query) summaryText += ` for "${query}"`;
+  if (category !== 'all') {
+    const categoryName = browseFilterCategory.options[browseFilterCategory.selectedIndex].text;
+    summaryText += ` in Category: ${categoryName}`;
+  }
+  if (browseResultsSummaryText) browseResultsSummaryText.textContent = summaryText;
+
+  // 1. FILTER USERS
+  let matchedUsers = [];
+  if (searchType !== 'book') {
+    const allUsers = getAllUsers();
+    matchedUsers = allUsers.filter(u => {
+      const q = query.toLowerCase();
+      return u.name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q);
+    });
+  }
+
+  // Helper to map category filter values to book genre substrings
+  function matchesCategory(bookGenre, catFilter) {
+    if (catFilter === 'all') return true;
+    const genreLower = bookGenre.toLowerCase();
+    if (catFilter === 'romance') return genreLower.includes('romance');
+    if (catFilter === 'fantasy') return genreLower.includes('fantasy');
+    if (catFilter === 'thriller') return genreLower.includes('thriller') || genreLower.includes('mystery');
+    if (catFilter === 'fiction') return genreLower.includes('fiction');
+    if (catFilter === 'dystopian') return genreLower.includes('dystopian') || genreLower.includes('young adult') || genreLower.includes('ya');
+    if (catFilter === 'classics') return genreLower.includes('classic');
+    return false;
+  }
+
+  // 2. FILTER LOCAL BOOKS
+  let matchedBooksMap = new Map();
+  if (searchType !== 'account') {
+    const allBooks = getAllBooks();
+    allBooks.forEach(b => {
+      const q = query.toLowerCase();
+      const matchesText = !query || b.title.toLowerCase().includes(q) || b.author.toLowerCase().includes(q);
+      const matchesCat = matchesCategory(b.genre || '', category);
+      if (matchesText && matchesCat) {
+        matchedBooksMap.set(b.title.toLowerCase(), b);
+      }
+    });
+  }
+
+  // Calculate rating helper
+  function getBookAvgRating(bookTitle) {
+    const posts = getPosts();
+    const reviews = posts.filter(p => p.book.title.toLowerCase() === bookTitle.toLowerCase());
+    const finished = reviews.filter(p => p.status === 'finished' && p.rating > 0);
+    if (finished.length === 0) return 0;
+    return finished.reduce((sum, p) => sum + p.rating, 0) / finished.length;
+  }
+
+  // Helper to sort matching books list
+  function sortBooks(booksList) {
+    if (sortBy === 'title') {
+      return booksList.sort((a, b) => a.title.localeCompare(b.title));
+    }
+    if (sortBy === 'rating') {
+      return booksList.sort((a, b) => getBookAvgRating(b.title) - getBookAvgRating(a.title));
+    }
+    if (sortBy === 'pages') {
+      return booksList.sort((a, b) => (b.pages || 300) - (a.pages || 300));
+    }
+    return booksList; // relevance (default preseeded order)
+  }
+
+  // Render initial local results
+  renderBrowseResultsPage(matchedUsers, sortBooks(Array.from(matchedBooksMap.values())));
+
+  // 3. FETCH ONLINE MATCHES IF BOOKS ARE EXPECTED
+  if (searchType !== 'account') {
+    // Determine subject search prefix or text query
+    let onlineQuery = query;
+    if (category !== 'all') {
+      let subjectTerm = category;
+      if (category === 'thriller') subjectTerm = 'mystery';
+      if (category === 'dystopian') subjectTerm = 'young_adult';
+      
+      onlineQuery = query ? `${query} subject:${subjectTerm}` : `subject:${subjectTerm}`;
+    }
+
+    if (onlineQuery) {
+      searchOnlineLibrary(onlineQuery).then(onlineBooks => {
+        // Ensure query state hasn't changed during execution
+        if (browseSearchQuery !== query || browseCategorySelected !== category) return;
+
+        onlineBooks.forEach(b => {
+          const key = b.title.toLowerCase();
+          const matchesCat = matchesCategory(b.genre || '', category);
+          if (matchesCat && !matchedBooksMap.has(key)) {
+            matchedBooksMap.set(key, b);
+          }
+        });
+
+        renderBrowseResultsPage(matchedUsers, sortBooks(Array.from(matchedBooksMap.values())));
+      }).catch(err => {
+        console.error('Online category search failed:', err);
+      });
+    }
+  }
+}
+
+// Reset browse search and show categories explorer grid
+function resetBrowseSearch() {
+  browseSearchInput.value = '';
+  browseFilterType.value = 'all';
+  browseFilterCategory.value = 'all';
+  browseFilterSort.value = 'relevance';
+  
+  browseSearchQuery = '';
+  browseCategorySelected = 'all';
+
+  if (browseCategoriesSection) browseCategoriesSection.style.display = 'block';
+  if (browseResultsContainer) browseResultsContainer.style.display = 'none';
+}
+
+// Render users and books browse matches
+function renderBrowseResultsPage(users, books) {
+  const hasUsers = users.length > 0;
+  const hasBooks = books.length > 0;
+
+  if (browseResultsUsersSection) {
+    browseResultsUsersSection.style.display = hasUsers ? 'block' : 'none';
+  }
+  if (browseResultsBooksSection) {
+    browseResultsBooksSection.style.display = hasBooks ? 'block' : 'none';
+  }
+  if (browseResultsEmpty) {
+    browseResultsEmpty.style.display = (!hasUsers && !hasBooks) ? 'block' : 'none';
+  }
+
+  // Render users
+  if (hasUsers && browseResultsUsersList) {
+    browseResultsUsersList.innerHTML = '';
+    users.forEach(user => {
+      const userCard = document.createElement('div');
+      userCard.className = 'search-user-card';
+      userCard.innerHTML = `
+        <img class="search-user-avatar" src="${user.avatar}" alt="${user.name}" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80'">
+        <div class="search-user-info">
+          <span class="search-user-name">${user.name}</span>
+          <span class="search-user-handle">@${user.username}</span>
+        </div>
+      `;
+      userCard.addEventListener('click', () => {
+        switchView('profile', user.username);
+      });
+      browseResultsUsersList.appendChild(userCard);
+    });
+  }
+
+  // Render books
+  if (hasBooks && browseResultsBooksGrid) {
+    browseResultsBooksGrid.innerHTML = '';
+    books.forEach(book => {
+      const bookCard = document.createElement('div');
+      bookCard.className = 'search-book-card';
+      
+      // Calculate dynamic average rating
+      const posts = getPosts();
+      const bookReviews = posts.filter(p => p.book.title.toLowerCase() === book.title.toLowerCase());
+      const finishedRatings = bookReviews.filter(p => p.status === 'finished' && p.rating > 0);
+      
+      let ratingHtml = '';
+      if (finishedRatings.length > 0) {
+        const totalRating = finishedRatings.reduce((sum, p) => sum + p.rating, 0);
+        const avg = (totalRating / finishedRatings.length).toFixed(1);
+        ratingHtml = `<div class="search-book-rating">★ ${avg}</div>`;
+      } else {
+        ratingHtml = `<div class="search-book-rating" style="color: var(--color-text-muted);">★ 0.0</div>`;
+      }
+
+      bookCard.innerHTML = `
+        <img class="search-book-cover" src="${book.cover}" alt="${book.title}" onerror="this.src='https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&w=300&q=80'">
+        <span class="search-book-title" title="${book.title}">${book.title}</span>
+        <span class="search-book-author">by ${book.author}</span>
+        ${ratingHtml}
+        <span class="search-book-genre">${book.genre || 'General'}</span>
+      `;
+      bookCard.addEventListener('click', () => {
+        switchView('book_details', book);
+      });
+      browseResultsBooksGrid.appendChild(bookCard);
+    });
+  }
+}
+
+// Render full page details for a selected book
+function renderBookDetailsPage(book) {
+  selectedBookForPost = book; // Cache for the "Post Update" button
+  
+  if (bookPageCover) bookPageCover.src = book.cover;
+  if (bookPageTitle) bookPageTitle.textContent = book.title;
+  if (bookPageAuthor) bookPageAuthor.textContent = `by ${book.author}`;
+  if (bookPageGenre) bookPageGenre.textContent = book.genre || 'General';
+  if (bookPagePages) bookPagePages.textContent = book.pages || 300;
+  if (bookPageDescription) {
+    bookPageDescription.textContent = book.description || 
+      `An exciting and deeply moving selection from our library collection, "${book.title}" explores themes of love, personal growth, and self-discovery.`;
+  }
+
+  // Fetch reviews from feed posts
+  const posts = getPosts();
+  const bookReviews = posts.filter(p => p.book.title.toLowerCase() === book.title.toLowerCase());
+
+  // Calculate Average Rating
+  const finishedRatings = bookReviews.filter(p => p.status === 'finished' && p.rating > 0);
+  if (finishedRatings.length > 0) {
+    const totalRating = finishedRatings.reduce((sum, p) => sum + p.rating, 0);
+    const avg = (totalRating / finishedRatings.length).toFixed(1);
+    if (bookPageAvgRating) bookPageAvgRating.textContent = `${avg} ★`;
+  } else {
+    if (bookPageAvgRating) bookPageAvgRating.textContent = '0.0';
+  }
+
+  // Populate Reviews List
+  if (bookPageReviews) {
+    bookPageReviews.innerHTML = '';
+    const validReviews = bookReviews.filter(p => p.comment || p.rating > 0);
+
+    if (validReviews.length === 0) {
+      bookPageReviews.innerHTML = `
+        <div style="text-align: center; padding: 32px; color: var(--color-text-muted); font-size: 0.85rem;">
+          No reviews for this book yet. Be the first to share your thoughts!
+        </div>
+      `;
+    } else {
+      validReviews.forEach(rev => {
+        const reviewEl = document.createElement('div');
+        reviewEl.className = 'book-review-item';
+
+        let starsHtml = '';
+        if (rev.status === 'finished' && rev.rating > 0) {
+          starsHtml = '<div class="review-rating">';
+          for (let s = 1; s <= 5; s++) {
+            starsHtml += `<span class="star ${s <= rev.rating ? 'filled' : ''}">★</span>`;
+          }
+          starsHtml += '</div>';
+        }
+
+        const badgeLabel = rev.status === 'reading' ? 'Reading' : 'Finished';
+        const badgeClass = rev.status === 'reading' ? 'reading' : 'finished';
+
+        reviewEl.innerHTML = `
+          <div class="review-header">
+            <img class="review-avatar" src="${rev.user.avatar}" alt="${rev.user.name}">
+            <div style="display: flex; flex-direction: column;">
+              <span class="review-user-name">${rev.user.name}</span>
+              <span style="font-size: 0.7rem; color: var(--color-text-muted);">@${rev.user.username}</span>
+            </div>
+            <span class="review-badge ${badgeClass}" style="margin-left: 10px;">${badgeLabel}</span>
+            <span class="review-meta">${rev.timestamp || 'Recent'}</span>
+          </div>
+          ${starsHtml}
+          <p class="review-text">${escapeHTML(rev.comment || 'No comment written.')}</p>
+        `;
+        bookPageReviews.appendChild(reviewEl);
+      });
+    }
+  }
+
+  // Configure back button text
+  if (btnBookDetailsBack) {
+    if (previousView === 'browse') {
+      btnBookDetailsBack.textContent = '← Back to Browse Results';
+    } else if (previousView === 'library') {
+      btnBookDetailsBack.textContent = '← Back to My Library';
+    } else if (previousView === 'profile') {
+      btnBookDetailsBack.textContent = '← Back to Profile';
+    } else {
+      btnBookDetailsBack.textContent = '← Back to Feed';
+    }
+  }
+}
+
+
+// Helper to generate a consistent premium color palette style for book spines
+function getSpineStyles(title) {
+  const spineColors = [
+    { bg: '#8C2E3C', text: '#FFFFFF', accent: '#E295A2' }, // Deep Burgundy
+    { bg: '#3E5E4E', text: '#FFFFFF', accent: '#A3B899' }, // Sage Olive
+    { bg: '#2B4C5E', text: '#FFFFFF', accent: '#8FA9C4' }, // Prussian Blue
+    { bg: '#D9A05B', text: '#1E1214', accent: '#8C2E3C' }, // Terracotta Gold
+    { bg: '#B57C8A', text: '#FFFFFF', accent: '#FFECEF' }, // Muted Rose
+    { bg: '#5C4A42', text: '#FFFFFF', accent: '#D9C3B0' }, // Charcoal Brown
+    { bg: '#E6D7C3', text: '#1E1214', accent: '#8C2E3C' }  // Oatmeal Cream
+  ];
+  let hash = 0;
+  for (let i = 0; i < title.length; i++) {
+    hash = title.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % spineColors.length;
+  return spineColors[index];
+}
+
+// Render My Library View (Interactive wood bookshelf with expandable book spines)
+function renderLibrary() {
+  const posts = getPosts();
+  const userPosts = posts.filter(p => p.user.username === userProfile.username);
+  
+  // Extract unique books from posts
+  const uniqueBooksMap = new Map();
+  userPosts.forEach(post => {
+    const key = post.book.title.toLowerCase();
+    if (!uniqueBooksMap.has(key)) {
+      uniqueBooksMap.set(key, post.book);
+    }
+  });
+
+  libraryGrid.innerHTML = '';
+  
+  if (uniqueBooksMap.size === 0) {
+    if (btnLibraryZoomOut) btnLibraryZoomOut.style.display = 'none';
+    libraryGrid.innerHTML = `
+      <div style="text-align: center; padding: 48px 20px; color: var(--color-text-muted);">
+        <span style="font-size: 2.5rem; display: block; margin-bottom: 8px;">📚</span>
+        <p style="font-weight: 500;">Your library is empty.</p>
+        <p style="font-size: 0.85rem; margin-top: 4px;">Click the Post button or search for books to add updates!</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Toggle Zoom Out button visibility and Grid zoomed-active status
+  if (btnLibraryZoomOut) {
+    btnLibraryZoomOut.style.display = zoomedShelfIndex !== null ? 'block' : 'none';
+  }
+  if (zoomedShelfIndex !== null) {
+    libraryGrid.classList.add('zoomed-active');
+  } else {
+    libraryGrid.classList.remove('zoomed-active');
+  }
+
+  const books = Array.from(uniqueBooksMap.values());
+  const booksPerShelf = Math.max(6, Math.ceil(books.length / 4)); // Divides books into exactly 4 shelves to encourage horizontal scrolling
+  
+  for (let i = 0; i < books.length; i += booksPerShelf) {
+    const shelfBooks = books.slice(i, i + booksPerShelf);
+    const shelfIndex = Math.floor(i / booksPerShelf);
+    
+    // Create shelf container
+    const shelfContainer = document.createElement('div');
+    shelfContainer.className = 'bookshelf-container';
+    if (zoomedShelfIndex === shelfIndex) {
+      shelfContainer.classList.add('zoomed');
+    }
+    
+    // Create row for books
+    const bookRow = document.createElement('div');
+    bookRow.className = 'bookshelf-row';
+    
+    shelfBooks.forEach(book => {
+      const bookStyles = getSpineStyles(book.title);
+      const bookEl = document.createElement('div');
+      bookEl.className = 'bookshelf-book';
+      bookEl.style.backgroundColor = bookStyles.bg;
+      bookEl.style.color = bookStyles.text;
+      bookEl.style.borderLeft = `3px solid ${bookStyles.accent}`;
+      
+      // Calculate dynamic thickness based on page count (between 35px and 55px)
+      const pages = book.pages || 300;
+      const thickness = Math.min(55, Math.max(35, Math.round(pages / 10 + 15)));
+      bookEl.style.setProperty('--book-thickness', `${thickness}px`);
+      
+      bookEl.innerHTML = `
+        <div class="book-spine">
+          <div class="book-spine-accent-line" style="background-color: ${bookStyles.accent};"></div>
+          <div class="book-spine-title-container">
+            <span class="book-spine-title">${book.title}</span>
+          </div>
+          <div class="book-spine-author" style="color: ${bookStyles.text === '#FFFFFF' ? 'rgba(255,255,255,0.75)' : 'rgba(30,18,20,0.75)'};">
+            ${book.author}
+          </div>
+        </div>
+        
+        <div class="book-cover-overlay">
+          <img class="book-cover-img" src="${book.cover}" alt="${book.title} Cover" onerror="this.src='https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&w=300&q=80'">
+          <div class="book-cover-details">
+            <div class="book-cover-title">${book.title}</div>
+            <div class="book-cover-author">by ${book.author}</div>
+          </div>
+        </div>
+      `;
+      
+      // Book spine click handler
+      bookEl.addEventListener('click', (e) => {
+        if (zoomedShelfIndex === shelfIndex) {
+          e.stopPropagation(); // Prevent zooming out/refocusing shelf container click
+          openBookDetailsModal(book);
+        }
+      });
+      
+      bookRow.appendChild(bookEl);
+    });
+    
+    // Drag-to-scroll implementation for bookRow
+    let isDown = false;
+    let startX;
+    let scrollLeft;
+    
+    bookRow.addEventListener('mousedown', (e) => {
+      isDown = true;
+      bookRow.classList.add('active-dragging');
+      startX = e.pageX - bookRow.offsetLeft;
+      scrollLeft = bookRow.scrollLeft;
+    });
+    
+    bookRow.addEventListener('mouseleave', () => {
+      isDown = false;
+      bookRow.classList.remove('active-dragging');
+    });
+    
+    bookRow.addEventListener('mouseup', () => {
+      isDown = false;
+      bookRow.classList.remove('active-dragging');
+    });
+    
+    bookRow.addEventListener('mousemove', (e) => {
+      if (!isDown) return;
+      e.preventDefault();
+      const x = e.pageX - bookRow.offsetLeft;
+      const walk = (x - startX) * 2; // Scroll multiplier
+      bookRow.scrollLeft = scrollLeft - walk;
+    });
+
+    // Create navigation buttons
+    const btnLeft = document.createElement('button');
+    btnLeft.className = 'shelf-nav-btn left';
+    btnLeft.type = 'button';
+    btnLeft.setAttribute('aria-label', 'Scroll shelf left');
+    btnLeft.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>`;
+    
+    const btnRight = document.createElement('button');
+    btnRight.className = 'shelf-nav-btn right';
+    btnRight.type = 'button';
+    btnRight.setAttribute('aria-label', 'Scroll shelf right');
+    btnRight.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
+    
+    btnLeft.addEventListener('click', (e) => {
+      e.stopPropagation(); // Prevent zooming shelf
+      const scrollAmount = Math.min(bookRow.clientWidth * 0.75, 400);
+      bookRow.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
+    });
+    
+    btnRight.addEventListener('click', (e) => {
+      e.stopPropagation(); // Prevent zooming shelf
+      const scrollAmount = Math.min(bookRow.clientWidth * 0.75, 400);
+      bookRow.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    });
+
+    // Check if scroll buttons should display on hover (only show if content overflows)
+    shelfContainer.addEventListener('mouseenter', () => {
+      const canScroll = bookRow.scrollWidth > bookRow.clientWidth;
+      btnLeft.style.display = canScroll ? 'flex' : 'none';
+      btnRight.style.display = canScroll ? 'flex' : 'none';
+    });
+
+    // Shelf zoom click handler (with drag prevention)
+    let shelfMousedownX = 0;
+    let shelfMousedownY = 0;
+    
+    shelfContainer.addEventListener('mousedown', (e) => {
+      shelfMousedownX = e.clientX;
+      shelfMousedownY = e.clientY;
+    });
+    
+    shelfContainer.addEventListener('click', (e) => {
+      const deltaX = Math.abs(e.clientX - shelfMousedownX);
+      const deltaY = Math.abs(e.clientY - shelfMousedownY);
+      if (deltaX > 10 || deltaY > 10) {
+        return; // It was a drag, do not trigger zoom
+      }
+      if (zoomedShelfIndex === null) {
+        zoomedShelfIndex = shelfIndex;
+        renderLibrary();
+      }
+    });
+    
+    // Create wood ledge
+    const woodLedge = document.createElement('div');
+    woodLedge.className = 'bookshelf-wood';
+    
+    shelfContainer.appendChild(btnLeft);
+    shelfContainer.appendChild(bookRow);
+    shelfContainer.appendChild(btnRight);
+    shelfContainer.appendChild(woodLedge);
+    libraryGrid.appendChild(shelfContainer);
   }
 }
 
@@ -483,13 +1255,16 @@ function switchProfileTab(tabName) {
 // Render Profile Dashboard View wrapper
 function renderProfileDashboard() {
   loadProfile();
+  loadProfileDashboard();
   switchProfileTab(currentProfileTab);
 }
 
 // Render User Bookshelf grid (derived from user's posts)
 function renderProfileBookshelf() {
+  const loggedInProfile = getProfile();
+  const targetUsername = viewedProfileUser || loggedInProfile.username;
   const posts = getPosts();
-  const userPosts = posts.filter(p => p.user.username === userProfile.username);
+  const userPosts = posts.filter(p => p.user.username === targetUsername);
   
   // De-duplicate books, preferring 'finished' status
   const uniqueBooksMap = new Map();
@@ -505,11 +1280,14 @@ function renderProfileBookshelf() {
   
   bookshelfGrid.innerHTML = '';
   if (uniqueBooksMap.size === 0) {
+    const emptyMsg = targetUsername === loggedInProfile.username 
+      ? 'No books on your shelf yet. Update what you are reading or finished to see them here!'
+      : `@${targetUsername} has not added any books to their shelf yet.`;
     bookshelfGrid.innerHTML = `
       <div style="grid-column: 1 / -1; text-align: center; padding: 48px 20px; color: var(--color-text-muted);">
         <span style="font-size: 2.5rem; display: block; margin-bottom: 8px;">📚</span>
-        <p style="font-weight: 500;">No books on your shelf yet.</p>
-        <p style="font-size: 0.85rem; margin-top: 4px;">Update what you are reading or finished to see them here!</p>
+        <p style="font-weight: 500;">Shelf is empty</p>
+        <p style="font-size: 0.85rem; margin-top: 4px;">${emptyMsg}</p>
       </div>
     `;
     return;
@@ -529,7 +1307,7 @@ function renderProfileBookshelf() {
     `;
     
     item.addEventListener('click', () => {
-      openPostModal(book);
+      openBookDetailsModal(book);
     });
     bookshelfGrid.appendChild(item);
   });
@@ -537,8 +1315,17 @@ function renderProfileBookshelf() {
 
 // Calculate and render reading stats/goals
 function renderProfileStats() {
+  const loggedInProfile = getProfile();
+  const targetUsername = viewedProfileUser || loggedInProfile.username;
+  
+  let targetProfile = loggedInProfile;
+  if (viewedProfileUser && viewedProfileUser !== loggedInProfile.username) {
+    const allUsers = getAllUsers();
+    targetProfile = allUsers.find(u => u.username === viewedProfileUser) || loggedInProfile;
+  }
+  
   const posts = getPosts();
-  const userPosts = posts.filter(p => p.user.username === userProfile.username);
+  const userPosts = posts.filter(p => p.user.username === targetUsername);
   
   const finishedPosts = userPosts.filter(p => p.status === 'finished');
   const readingPosts = userPosts.filter(p => p.status === 'reading');
@@ -556,7 +1343,7 @@ function renderProfileStats() {
   document.getElementById('stat-avg-rating').textContent = avgRating;
   
   // Reading challenge goal progress
-  const goal = userProfile.readingGoal || 50;
+  const goal = targetProfile.readingGoal || 50;
   const percentage = Math.min(100, Math.round((totalRead / goal) * 100));
   
   const progressFill = document.getElementById('goal-progress-fill');
@@ -564,7 +1351,8 @@ function renderProfileStats() {
   
   if (progressFill) progressFill.style.width = `${percentage}%`;
   if (progressText) {
-    progressText.textContent = `${totalRead} of ${goal} books read (${percentage}% completed)`;
+    const profileNameStr = targetUsername === loggedInProfile.username ? 'My' : `${targetProfile.name}'s`;
+    progressText.textContent = `${totalRead} of ${goal} books read (${percentage}% completed for ${profileNameStr} Challenge)`;
   }
   
   // Genre breakdown
@@ -606,12 +1394,36 @@ function renderProfileStats() {
 
 // Render friends list card items
 function renderProfileFriends() {
+  const loggedInProfile = getProfile();
+  const targetUsername = viewedProfileUser || loggedInProfile.username;
   const friends = getFriendsList();
+  
   friendsDashboardGrid.innerHTML = '';
   
-  friends.forEach(f => {
+  // If viewing other user's profile, let's show a simulated friends list using other users from posts
+  let displayFriends = friends;
+  if (viewedProfileUser && viewedProfileUser !== loggedInProfile.username) {
+    const allUsers = getAllUsers();
+    // Exclude the viewed user themselves and map to friend format
+    const otherUsers = allUsers.filter(u => u.username !== viewedProfileUser);
+    displayFriends = otherUsers.slice(0, 4).map(u => {
+      const posts = getPosts();
+      const userPost = posts.find(p => p.user.username === u.username);
+      return {
+        name: u.name,
+        username: u.username,
+        avatar: u.avatar,
+        status: userPost ? userPost.status : 'finished',
+        bookTitle: userPost ? userPost.book.title : 'The Seven Husbands of Evelyn Hugo',
+        bookAuthor: userPost ? userPost.book.author : 'Taylor Jenkins Reid'
+      };
+    });
+  }
+  
+  displayFriends.forEach(f => {
     const card = document.createElement('div');
     card.className = 'friend-dashboard-card';
+    card.style.cursor = 'pointer';
     const statusText = f.status === 'reading' ? `📖 Reading <em>${f.bookTitle}</em>` : `🏆 Finished <em>${f.bookTitle}</em>`;
     
     card.innerHTML = `
@@ -622,6 +1434,12 @@ function renderProfileFriends() {
         <span class="friend-dashboard-status">${statusText}</span>
       </div>
     `;
+    
+    // Clicking friend card navigates to their profile
+    card.addEventListener('click', () => {
+      switchView('profile', f.username);
+    });
+    
     friendsDashboardGrid.appendChild(card);
   });
 }
@@ -660,6 +1478,39 @@ function setupEventListeners() {
   postModalOverlay.addEventListener('click', (e) => {
     if (e.target === postModalOverlay) closeModal();
   });
+
+  // Book Details Modal Listeners
+  if (btnCloseBookDetails) {
+    btnCloseBookDetails.addEventListener('click', closeBookDetailsModal);
+  }
+  if (bookDetailsModalOverlay) {
+    bookDetailsModalOverlay.addEventListener('click', (e) => {
+      if (e.target === bookDetailsModalOverlay) closeBookDetailsModal();
+    });
+  }
+  if (btnDetLogProgress) {
+    btnDetLogProgress.addEventListener('click', () => {
+      const bookToPost = selectedBookForPost;
+      closeBookDetailsModal();
+      openPostModal(bookToPost);
+    });
+  }
+
+  // Details page back button and progress logger
+  if (btnBookDetailsBack) {
+    btnBookDetailsBack.addEventListener('click', () => {
+      if (previousView === 'browse') {
+        switchView('browse', true);
+      } else {
+        switchView(previousView || 'feed');
+      }
+    });
+  }
+  if (btnPageLogProgress) {
+    btnPageLogProgress.addEventListener('click', () => {
+      openPostModal(selectedBookForPost);
+    });
+  }
 
   // Live Auto-Complete Book Search (Debounced & Online Library API)
   bookSearchInput.addEventListener('input', (e) => {
@@ -817,8 +1668,31 @@ function setupEventListeners() {
     renderFeed();
   });
 
-  // Feed Event Delegation: Likes and Comment Forms
+  // Feed Event Delegation: Likes, profile link clicks, and Comment Forms
   feedContainer.addEventListener('click', (e) => {
+    // Profile Links (click avatar or username in feed)
+    const profileLink = e.target.closest('.user-profile-link');
+    if (profileLink) {
+      const username = profileLink.dataset.username;
+      switchView('profile', username);
+      return;
+    }
+
+    // Click on book subcard
+    const bookSubcard = e.target.closest('.post-book-subcard');
+    if (bookSubcard) {
+      const postCard = bookSubcard.closest('.post-card');
+      if (postCard) {
+        const postId = postCard.dataset.id;
+        const posts = getPosts();
+        const post = posts.find(p => p.id === postId);
+        if (post && post.book) {
+          openBookDetailsModal(post.book);
+        }
+      }
+      return;
+    }
+
     // Likes Button
     const likeBtn = e.target.closest('.like-btn');
     if (likeBtn) {
@@ -877,7 +1751,7 @@ function setupEventListeners() {
   });
 
   // Custom Book Form Submission (Right Sidebar)
-  customBookForm.addEventListener('submit', (e) => {
+  customBookForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const title = customTitleInput.value.trim();
     const author = customAuthorInput.value.trim();
@@ -885,16 +1759,32 @@ function setupEventListeners() {
 
     if (!title || !author) return;
 
-    // Generate a beautiful placeholder cover based on OpenLibrary title search
-    // Or a generic gorgeous SVG/Unsplash path. 
-    // OpenLibrary covers don't support searching by title immediately, so we can use a high-quality Unsplash read image
-    const randomCovers = [
-      "https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&w=300&q=80",
-      "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=300&q=80",
-      "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=300&q=80",
-      "https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&w=300&q=80"
-    ];
-    const coverUrl = randomCovers[Math.floor(Math.random() * randomCovers.length)];
+    // Show visual feedback or loading state on button
+    const submitBtn = customBookForm.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.textContent = 'Searching cover...';
+    submitBtn.disabled = true;
+
+    let coverUrl = '';
+    try {
+      const matches = await searchOnlineLibrary(`${title} ${author}`);
+      if (matches && matches.length > 0) {
+        coverUrl = matches[0].cover;
+      }
+    } catch (err) {
+      console.error('Failed to fetch cover online:', err);
+    }
+
+    if (!coverUrl) {
+      // Fallback: use a premium Unsplash placeholder
+      const randomCovers = [
+        "https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&w=300&q=80",
+        "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=300&q=80",
+        "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=300&q=80",
+        "https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&w=300&q=80"
+      ];
+      coverUrl = randomCovers[Math.floor(Math.random() * randomCovers.length)];
+    }
 
     const customBook = {
       id: `custom_${Date.now()}`,
@@ -908,6 +1798,10 @@ function setupEventListeners() {
 
     saveCustomBook(customBook);
     
+    // Reset button
+    submitBtn.textContent = originalText;
+    submitBtn.disabled = false;
+
     // Clear Form inputs
     customTitleInput.value = '';
     customAuthorInput.value = '';
@@ -917,6 +1811,68 @@ function setupEventListeners() {
     alert(`"${title}" has been successfully added to your database! You can now search for it when creating a post.`);
     renderTrendingBooks();
   });
+
+  // Library Zoom Out Button Click Handler
+  if (btnLibraryZoomOut) {
+    btnLibraryZoomOut.addEventListener('click', () => {
+      zoomedShelfIndex = null;
+      renderLibrary();
+    });
+  }
+
+  // Browse Page Navigation Reset & Action Submission
+  if (btnBrowseReset) {
+    btnBrowseReset.addEventListener('click', resetBrowseSearch);
+  }
+
+  if (btnBrowseSearchSubmit) {
+    btnBrowseSearchSubmit.addEventListener('click', () => executeBrowseSearch());
+  }
+
+  if (browseSearchInput) {
+    browseSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        executeBrowseSearch();
+      }
+    });
+  }
+
+  // Category card triggers
+  const categoryCards = document.querySelectorAll('.category-explore-card');
+  categoryCards.forEach(card => {
+    card.addEventListener('click', () => {
+      const category = card.dataset.category;
+      executeBrowseSearch(category);
+    });
+  });
+
+  // Dynamic filter change updates
+  if (browseFilterType) {
+    browseFilterType.addEventListener('change', () => {
+      if (browseResultsContainer && browseResultsContainer.style.display !== 'none') {
+        executeBrowseSearch();
+      }
+    });
+  }
+  if (browseFilterCategory) {
+    browseFilterCategory.addEventListener('change', () => {
+      if (browseResultsContainer && browseResultsContainer.style.display !== 'none') {
+        executeBrowseSearch();
+      }
+    });
+  }
+  if (browseFilterSort) {
+    browseFilterSort.addEventListener('change', () => {
+      if (browseResultsContainer && browseResultsContainer.style.display !== 'none') {
+        executeBrowseSearch();
+      }
+    });
+  }
+
+  // Header Navigation Tab Triggers
+  if (btnTabFeed) btnTabFeed.addEventListener('click', () => switchView('feed'));
+  if (btnTabLibrary) btnTabLibrary.addEventListener('click', () => switchView('library'));
+  if (btnTabBrowse) btnTabBrowse.addEventListener('click', () => switchView('browse'));
 
   // Switch to Profile View Triggers
   if (navAvatar) navAvatar.addEventListener('click', () => switchView('profile'));

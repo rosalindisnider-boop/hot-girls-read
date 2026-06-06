@@ -1,4 +1,4 @@
-import { PRESEEDED_BOOKS } from './books.js';
+import { PRESEEDED_BOOKS } from './books.js?v=4';
 
 const STORAGE_KEYS = {
   POSTS: 'hotgirlsread_posts',
@@ -12,8 +12,8 @@ const DEFAULT_PROFILE = {
   avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80",
   cover: "https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&w=1200&q=80",
   bio: "Spicy romance enthusiast. Always reading past my bedtime. ☕️✨",
-  readingGoal: 50,
-  booksRead: 18
+  readingGoal: 100,
+  booksRead: 80
 };
 
 const SEED_POSTS = [
@@ -80,6 +80,198 @@ const SEED_POSTS = [
       }
     ],
     timestamp: "6 hours ago"
+  },
+  {
+    id: "post_user_1",
+    user: {
+      name: "Seraphina Vance",
+      username: "seraphinareads",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+    },
+    book: PRESEEDED_BOOKS.find(b => b.id === "1"), // It Ends With Us
+    status: "finished",
+    rating: 4,
+    comment: "Colleen Hoover knows how to pull at your heartstrings. A heavy but beautiful story about resilience and making difficult choices. 🌸",
+    likes: 31,
+    likedByUser: false,
+    comments: [],
+    timestamp: "1 day ago"
+  },
+  {
+    id: "post_user_4",
+    user: {
+      name: "Seraphina Vance",
+      username: "seraphinareads",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+    },
+    book: PRESEEDED_BOOKS.find(b => b.id === "4"), // Normal People
+    status: "finished",
+    rating: 5,
+    comment: "I've never read a book that portrays intimacy and vulnerability so accurately. Connell and Marianne are forever in my heart. 😭❤️",
+    likes: 45,
+    likedByUser: false,
+    comments: [],
+    timestamp: "2 days ago"
+  },
+  {
+    id: "post_user_5",
+    user: {
+      name: "Seraphina Vance",
+      username: "seraphinareads",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+    },
+    book: PRESEEDED_BOOKS.find(b => b.id === "5"), // Happy Place
+    status: "finished",
+    rating: 4,
+    comment: "Emily Henry does it again! The banter was top-tier, and the second-chance romance aspect was so emotional. Perfect vacation read! ☀️🌊",
+    likes: 27,
+    likedByUser: false,
+    comments: [],
+    timestamp: "3 days ago"
+  },
+  {
+    id: "post_user_6",
+    user: {
+      name: "Seraphina Vance",
+      username: "seraphinareads",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+    },
+    book: PRESEEDED_BOOKS.find(b => b.id === "6"), // Fourth Wing
+    status: "reading",
+    rating: 0,
+    comment: "Oh my gosh, I am officially obsessed with Xaden Riorson. Dragon military academy is brutal but I cannot put this down! 🐉✨",
+    likes: 56,
+    likedByUser: false,
+    comments: [],
+    timestamp: "4 days ago"
+  },
+  {
+    id: "post_user_7",
+    user: {
+      name: "Seraphina Vance",
+      username: "seraphinareads",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+    },
+    book: PRESEEDED_BOOKS.find(b => b.id === "7"), // The Silent Patient
+    status: "finished",
+    rating: 5,
+    comment: "THAT PLOT TWIST. I literally stared at the wall in silence for 15 minutes. Absolute masterpiece of psychological suspense. 🔍👀",
+    likes: 62,
+    likedByUser: false,
+    comments: [],
+    timestamp: "5 days ago"
+  },
+  {
+    id: "post_user_8",
+    user: {
+      name: "Seraphina Vance",
+      username: "seraphinareads",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+    },
+    book: PRESEEDED_BOOKS.find(b => b.id === "8"), // Book Lovers
+    status: "finished",
+    rating: 4,
+    comment: "Nora and Charlie are my absolute favorites. The chemistry, the rival-to-lovers dynamic, the small-town setting... Emily Henry, take all my money. 📖💕",
+    likes: 38,
+    likedByUser: false,
+    comments: [],
+    timestamp: "6 days ago"
+  },
+  {
+    id: "post_user_9",
+    user: {
+      name: "Seraphina Vance",
+      username: "seraphinareads",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+    },
+    book: PRESEEDED_BOOKS.find(b => b.id === "9"), // Verity
+    status: "finished",
+    rating: 4,
+    comment: "Creepy, dark, and completely addictive. I couldn't sleep until I finished it. That ending still has me questioning everything. 💀🖊️",
+    likes: 49,
+    likedByUser: false,
+    comments: [],
+    timestamp: "1 week ago"
+  },
+  {
+    id: "post_user_11",
+    user: {
+      name: "Seraphina Vance",
+      username: "seraphinareads",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+    },
+    book: PRESEEDED_BOOKS.find(b => b.id === "11"), // The Midnight Library
+    status: "finished",
+    rating: 5,
+    comment: "Between life and death there is a library... Such a comforting and beautiful exploration of regret, choices, and what truly makes life worth living. 🌌✨",
+    likes: 53,
+    likedByUser: false,
+    comments: [],
+    timestamp: "1 week ago"
+  },
+  {
+    id: "post_user_12",
+    user: {
+      name: "Seraphina Vance",
+      username: "seraphinareads",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+    },
+    book: PRESEEDED_BOOKS.find(b => b.id === "12"), // Pride and Prejudice
+    status: "finished",
+    rating: 5,
+    comment: "Mr. Darcy is the blueprint. Re-reading this classic and it's just as witty and romantic as ever. Elizabeth Bennet is an absolute icon. ✒️🎩",
+    likes: 67,
+    likedByUser: false,
+    comments: [],
+    timestamp: "2 weeks ago"
+  },
+  {
+    id: "post_user_13",
+    user: {
+      name: "Seraphina Vance",
+      username: "seraphinareads",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+    },
+    book: PRESEEDED_BOOKS.find(b => b.id === "13"), // The Love Hypothesis
+    status: "finished",
+    rating: 4,
+    comment: "Fake dating in STEM? Yes, a thousand times yes! Olive and Adam are adorable, and the science jokes were a perfect addition. 🔬🧪❤️",
+    likes: 41,
+    likedByUser: false,
+    comments: [],
+    timestamp: "2 weeks ago"
+  },
+  {
+    id: "post_user_14",
+    user: {
+      name: "Seraphina Vance",
+      username: "seraphinareads",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+    },
+    book: PRESEEDED_BOOKS.find(b => b.id === "14"), // Tomorrow, and Tomorrow, and Tomorrow
+    status: "finished",
+    rating: 5,
+    comment: "This is not just about video game design; it's a profound exploration of friendship, creative partnership, grief, and love over 30 years. Exquisite. 🎮👾❤️",
+    likes: 72,
+    likedByUser: false,
+    comments: [],
+    timestamp: "3 weeks ago"
+  },
+  {
+    id: "post_user_15",
+    user: {
+      name: "Seraphina Vance",
+      username: "seraphinareads",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+    },
+    book: PRESEEDED_BOOKS.find(b => b.id === "15"), // The Hunger Games
+    status: "finished",
+    rating: 5,
+    comment: "Katniss Everdeen, the girl on fire. Rereading this trilogy and it is still a masterclass in pacing, tension, and survival. 🏹🔥🌲",
+    likes: 83,
+    likedByUser: false,
+    comments: [],
+    timestamp: "1 month ago"
   },
   {
     id: "post_3",
@@ -186,11 +378,63 @@ export async function searchOnlineLibrary(query) {
 
 export function getPosts() {
   const data = localStorage.getItem(STORAGE_KEYS.POSTS);
+  let posts = [];
   if (!data) {
-    localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(SEED_POSTS));
-    return SEED_POSTS;
+    posts = SEED_POSTS;
+  } else {
+    try {
+      posts = JSON.parse(data);
+    } catch (e) {
+      posts = SEED_POSTS;
+    }
   }
-  return JSON.parse(data);
+
+  // Count unique books for the user 'seraphinareads'
+  const ownPosts = posts.filter(p => p.user && p.user.username === 'seraphinareads');
+  const uniqueBookIds = new Set(ownPosts.map(p => p.book.id));
+
+  // If user has less than 95 books of the preseeded ones, force-add posts for all 100 books
+  if (uniqueBookIds.size < 95) {
+    const injectedPosts = [...posts];
+    PRESEEDED_BOOKS.forEach((book, idx) => {
+      if (!uniqueBookIds.has(book.id)) {
+        const isFinished = idx % 5 !== 0; // Make some reading, most finished
+        const rating = isFinished ? (3 + (idx % 3)) : 0; // rating 3, 4, or 5
+        const comment = isFinished 
+          ? `I absolutely loved reading "${book.title}"! High-fidelity wood shelf zoom testing looks fantastic.` 
+          : `Currently reading "${book.title}" on my beautiful scrolling library shelf!`;
+        
+        injectedPosts.push({
+          id: `injected_${book.id}_${Date.now()}`,
+          user: {
+            name: "Seraphina Vance",
+            username: "seraphinareads",
+            avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
+          },
+          book: book,
+          status: isFinished ? "finished" : "reading",
+          rating: rating,
+          comment: comment,
+          likes: Math.floor(Math.random() * 50) + 10,
+          likedByUser: Math.random() > 0.5,
+          comments: [],
+          timestamp: `${idx + 1} day${idx !== 0 ? 's' : ''} ago`
+        });
+      }
+    });
+    localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(injectedPosts));
+    
+    // Dynamically update user profile booksRead and readingGoal to match the new database size
+    const profile = getProfile();
+    const ownFinishedCount = injectedPosts.filter(p => p.user && p.user.username === 'seraphinareads' && p.status === 'finished').length;
+    profile.booksRead = ownFinishedCount;
+    profile.readingGoal = 100;
+    saveProfile(profile);
+    
+    return injectedPosts;
+  }
+  
+  return posts;
 }
 
 export function savePosts(posts) {
@@ -308,6 +552,51 @@ const SEED_FRIENDS = [
 
 export function getFriendsList() {
   return SEED_FRIENDS;
+}
+
+export function getAllUsers() {
+  const posts = getPosts();
+  const friends = getFriendsList();
+  const currentUser = getProfile();
+  
+  const usersMap = new Map();
+  
+  // Add current user
+  usersMap.set(currentUser.username, {
+    name: currentUser.name,
+    username: currentUser.username,
+    avatar: currentUser.avatar,
+    bio: currentUser.bio || "No bio yet.",
+    isCurrentUser: true
+  });
+  
+  // Add friends
+  friends.forEach(f => {
+    if (!usersMap.has(f.username)) {
+      usersMap.set(f.username, {
+        name: f.name,
+        username: f.username,
+        avatar: f.avatar,
+        bio: `${f.name} loves reading spicy romance and fantasy novels! ✨`,
+        isCurrentUser: false
+      });
+    }
+  });
+  
+  // Add users from posts
+  posts.forEach(p => {
+    if (!usersMap.has(p.user.username)) {
+      usersMap.set(p.user.username, {
+        name: p.user.name,
+        username: p.user.username,
+        avatar: p.user.avatar,
+        bio: `${p.user.name} is a proud member of the Hot Girls Read book club! 📖✨`,
+        isCurrentUser: false
+      });
+    }
+  });
+  
+  return Array.from(usersMap.values());
 }
 
 
