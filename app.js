@@ -19,6 +19,7 @@ let browseCategorySelected = 'all';
 let currentProfileTab = 'bookshelf';
 let viewedProfileUser = null; // stores username when viewing other profiles, or null for own profile
 let zoomedShelfIndex = null; // tracks which shelf index is currently zoomed in, or null if zoomed out
+let zoomedBayIndex = null;   // tracks which bay (column) index is currently zoomed in, or null if zoomed out
 let showingLogin = true;
 
 // DOM Elements
@@ -768,6 +769,7 @@ function switchView(viewName, extraParam = null) {
     
     // Reset shelf zoom state
     zoomedShelfIndex = null;
+    zoomedBayIndex = null;
     
     // Render Library Books
     renderLibrary();
@@ -1164,11 +1166,67 @@ function renderLibrary() {
 
   const books = Array.from(uniqueBooksMap.values());
 
-  if (zoomedShelfIndex !== null) {
-    // Zoomed-In View: A single long horizontal shelf of large books that scrolls
-    const booksPerShelf = Math.max(1, Math.ceil(books.length / 4));
-    const startIdx = zoomedShelfIndex * booksPerShelf;
-    const shelfBooks = books.slice(startIdx, startIdx + booksPerShelf);
+  // 1. Calculate book thickness and distribute unique books greedily across 4 shelves based on total width
+  const shelvesBooks = [[], [], [], []];
+  const shelfWidths = [0, 0, 0, 0];
+  
+  const getBookZoomedOutWidth = (book) => {
+    const pages = book.pages || 300;
+    const thickness = Math.min(55, Math.max(35, Math.round(pages / 10 + 15)));
+    return (thickness * 0.5) + 1; // half thickness plus 1px gap
+  };
+
+  books.forEach(book => {
+    const bookWidth = getBookZoomedOutWidth(book);
+    // Find the shelf with the minimum filled width
+    let minIdx = 0;
+    let minW = shelfWidths[0];
+    for (let i = 1; i < 4; i++) {
+      if (shelfWidths[i] < minW) {
+        minW = shelfWidths[i];
+        minIdx = i;
+      }
+    }
+    shelvesBooks[minIdx].push(book);
+    shelfWidths[minIdx] += bookWidth;
+  });
+
+  // 2. Group books of each shelf into bays of max width 260px (282px minus padding)
+  const shelfBays = [[], [], [], []];
+  const maxBayWidth = 260; 
+
+  for (let shelfIdx = 0; shelfIdx < 4; shelfIdx++) {
+    let currentBay = [];
+    let currentWidth = 0;
+    
+    shelvesBooks[shelfIdx].forEach(book => {
+      const bookWidth = getBookZoomedOutWidth(book);
+      if (currentWidth + bookWidth > maxBayWidth && currentBay.length > 0) {
+        shelfBays[shelfIdx].push(currentBay);
+        currentBay = [book];
+        currentWidth = bookWidth;
+      } else {
+        currentBay.push(book);
+        currentWidth += bookWidth;
+      }
+    });
+    
+    if (currentBay.length > 0) {
+      shelfBays[shelfIdx].push(currentBay);
+    }
+  }
+
+  // Calculate the maximum number of bays across all 4 shelves (ensure at least 1)
+  const numBays = Math.max(1, 
+    shelfBays[0].length, 
+    shelfBays[1].length, 
+    shelfBays[2].length, 
+    shelfBays[3].length
+  );
+
+  if (zoomedShelfIndex !== null && zoomedBayIndex !== null) {
+    // Zoomed-In View: Show only the books in the clicked bay segment of the selected shelf
+    const shelfBooks = (shelfBays[zoomedShelfIndex] && shelfBays[zoomedShelfIndex][zoomedBayIndex]) || [];
 
     // Create shelf container
     const shelfContainer = document.createElement('div');
@@ -1290,19 +1348,6 @@ function renderLibrary() {
 
   } else {
     // Zoomed-Out View: Entire library is a horizontal corridor of 4 shelves that scroll together
-    const booksPerShelf = Math.ceil(books.length / 4);
-    
-    // Slice books into 4 shelves
-    const shelvesBooks = [
-      books.slice(0, booksPerShelf),
-      books.slice(booksPerShelf, booksPerShelf * 2),
-      books.slice(booksPerShelf * 2, booksPerShelf * 3),
-      books.slice(booksPerShelf * 3)
-    ];
-
-    const booksPerBay = 6;
-    const numBays = Math.max(1, Math.ceil(booksPerShelf / booksPerBay)); // Keep at least 1 bay
-
     // Create the library wall container
     const libraryWall = document.createElement('div');
     libraryWall.className = 'library-wall';
@@ -1320,10 +1365,11 @@ function renderLibrary() {
       for (let bayIdx = 0; bayIdx < numBays; bayIdx++) {
         const baySegment = document.createElement('div');
         baySegment.className = 'shelf-bay-segment';
+        baySegment.dataset.shelfIndex = shelfIdx;
+        baySegment.dataset.bayIndex = bayIdx;
 
         // Get books for this shelf in this bay
-        const start = bayIdx * booksPerBay;
-        const bayBooks = shelvesBooks[shelfIdx].slice(start, start + booksPerBay);
+        const bayBooks = (shelfBays[shelfIdx] && shelfBays[shelfIdx][bayIdx]) || [];
 
         bayBooks.forEach(book => {
           const bookStyles = getSpineStyles(book.title);
@@ -1354,6 +1400,25 @@ function renderLibrary() {
           baySegment.appendChild(bookEl);
         });
 
+        // Set up click-to-zoom on the specific bay segment
+        let bayMousedownX = 0;
+        let bayMousedownY = 0;
+
+        baySegment.addEventListener('mousedown', (e) => {
+          bayMousedownX = e.clientX;
+          bayMousedownY = e.clientY;
+        });
+
+        baySegment.addEventListener('click', (e) => {
+          const deltaX = Math.abs(e.clientX - bayMousedownX);
+          const deltaY = Math.abs(e.clientY - bayMousedownY);
+          if (deltaX > 10 || deltaY > 10) return; // Dragging, don't zoom
+          
+          zoomedShelfIndex = shelfIdx;
+          zoomedBayIndex = bayIdx;
+          renderLibrary();
+        });
+
         bookRow.appendChild(baySegment);
 
         // Add spacer segment where the upright pillar sits
@@ -1361,24 +1426,6 @@ function renderLibrary() {
         spacer.className = 'upright-spacer';
         bookRow.appendChild(spacer);
       }
-
-      // Zoom-in click handler on the row (excluding drag actions)
-      let shelfMousedownX = 0;
-      let shelfMousedownY = 0;
-      
-      bookRow.addEventListener('mousedown', (e) => {
-        shelfMousedownX = e.clientX;
-        shelfMousedownY = e.clientY;
-      });
-      
-      bookRow.addEventListener('click', (e) => {
-        const deltaX = Math.abs(e.clientX - shelfMousedownX);
-        const deltaY = Math.abs(e.clientY - shelfMousedownY);
-        if (deltaX > 10 || deltaY > 10) return; // Dragging, don't zoom
-        
-        zoomedShelfIndex = shelfIdx;
-        renderLibrary();
-      });
 
       const woodLedge = document.createElement('div');
       woodLedge.className = 'bookshelf-wood';
@@ -2071,6 +2118,7 @@ function setupEventListeners() {
   if (btnLibraryZoomOut) {
     btnLibraryZoomOut.addEventListener('click', () => {
       zoomedShelfIndex = null;
+      zoomedBayIndex = null;
       renderLibrary();
     });
   }

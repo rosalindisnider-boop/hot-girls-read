@@ -2668,7 +2668,8 @@ header {
 .shelf-bay-segment {
   display: flex;
   align-items: flex-end;
-  justify-content: space-around;
+  justify-content: flex-start;
+  gap: 1px;
   width: 282px; /* Fixed width of each shelf bay section */
   height: 96px; /* Small book height area */
   flex-shrink: 0;
