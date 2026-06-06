@@ -1,4 +1,4 @@
-import { getProfile, saveProfile, getPosts, addPost, toggleLikePost, addCommentToPost, getAllBooks, saveCustomBook, getCustomBooks, searchOnlineLibrary, updatePost, getFriendsList, getAllUsers } from './storage.js?v=4';
+import { getProfile, saveProfile, getPosts, addPost, toggleLikePost, addCommentToPost, getAllBooks, saveCustomBook, getCustomBooks, searchOnlineLibrary, updatePost, getFriendsList, getAllUsers } from './storage.js?v=5';
 
 // Application State
 let currentFilter = 'all';
@@ -1064,18 +1064,16 @@ function renderLibrary() {
   }
 
   const books = Array.from(uniqueBooksMap.values());
-  const booksPerShelf = Math.max(6, Math.ceil(books.length / 4)); // Divides books into exactly 4 shelves to encourage horizontal scrolling
-  
-  for (let i = 0; i < books.length; i += booksPerShelf) {
-    const shelfBooks = books.slice(i, i + booksPerShelf);
-    const shelfIndex = Math.floor(i / booksPerShelf);
-    
+
+  if (zoomedShelfIndex !== null) {
+    // Zoomed-In View: A single long horizontal shelf of large books that scrolls
+    const booksPerShelf = Math.ceil(books.length / 4);
+    const startIdx = zoomedShelfIndex * booksPerShelf;
+    const shelfBooks = books.slice(startIdx, startIdx + booksPerShelf);
+
     // Create shelf container
     const shelfContainer = document.createElement('div');
-    shelfContainer.className = 'bookshelf-container';
-    if (zoomedShelfIndex === shelfIndex) {
-      shelfContainer.classList.add('zoomed');
-    }
+    shelfContainer.className = 'bookshelf-container zoomed';
     
     // Create row for books
     const bookRow = document.createElement('div');
@@ -1089,7 +1087,6 @@ function renderLibrary() {
       bookEl.style.color = bookStyles.text;
       bookEl.style.borderLeft = `3px solid ${bookStyles.accent}`;
       
-      // Calculate dynamic thickness based on page count (between 35px and 55px)
       const pages = book.pages || 300;
       const thickness = Math.min(55, Math.max(35, Math.round(pages / 10 + 15)));
       bookEl.style.setProperty('--book-thickness', `${thickness}px`);
@@ -1114,18 +1111,15 @@ function renderLibrary() {
         </div>
       `;
       
-      // Book spine click handler
       bookEl.addEventListener('click', (e) => {
-        if (zoomedShelfIndex === shelfIndex) {
-          e.stopPropagation(); // Prevent zooming out/refocusing shelf container click
-          openBookDetailsModal(book);
-        }
+        e.stopPropagation();
+        openBookDetailsModal(book);
       });
       
       bookRow.appendChild(bookEl);
     });
-    
-    // Drag-to-scroll implementation for bookRow
+
+    // Drag-to-scroll implementation for bookRow (when zoomed in)
     let isDown = false;
     let startX;
     let scrollLeft;
@@ -1151,7 +1145,7 @@ function renderLibrary() {
       if (!isDown) return;
       e.preventDefault();
       const x = e.pageX - bookRow.offsetLeft;
-      const walk = (x - startX) * 2; // Scroll multiplier
+      const walk = (x - startX) * 2;
       bookRow.scrollLeft = scrollLeft - walk;
     });
 
@@ -1169,46 +1163,23 @@ function renderLibrary() {
     btnRight.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
     
     btnLeft.addEventListener('click', (e) => {
-      e.stopPropagation(); // Prevent zooming shelf
+      e.stopPropagation();
       const scrollAmount = Math.min(bookRow.clientWidth * 0.75, 400);
       bookRow.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
     });
     
     btnRight.addEventListener('click', (e) => {
-      e.stopPropagation(); // Prevent zooming shelf
+      e.stopPropagation();
       const scrollAmount = Math.min(bookRow.clientWidth * 0.75, 400);
       bookRow.scrollBy({ left: scrollAmount, behavior: 'smooth' });
     });
 
-    // Check if scroll buttons should display on hover (only show if content overflows)
     shelfContainer.addEventListener('mouseenter', () => {
       const canScroll = bookRow.scrollWidth > bookRow.clientWidth;
       btnLeft.style.display = canScroll ? 'flex' : 'none';
       btnRight.style.display = canScroll ? 'flex' : 'none';
     });
 
-    // Shelf zoom click handler (with drag prevention)
-    let shelfMousedownX = 0;
-    let shelfMousedownY = 0;
-    
-    shelfContainer.addEventListener('mousedown', (e) => {
-      shelfMousedownX = e.clientX;
-      shelfMousedownY = e.clientY;
-    });
-    
-    shelfContainer.addEventListener('click', (e) => {
-      const deltaX = Math.abs(e.clientX - shelfMousedownX);
-      const deltaY = Math.abs(e.clientY - shelfMousedownY);
-      if (deltaX > 10 || deltaY > 10) {
-        return; // It was a drag, do not trigger zoom
-      }
-      if (zoomedShelfIndex === null) {
-        zoomedShelfIndex = shelfIndex;
-        renderLibrary();
-      }
-    });
-    
-    // Create wood ledge
     const woodLedge = document.createElement('div');
     woodLedge.className = 'bookshelf-wood';
     
@@ -1217,6 +1188,173 @@ function renderLibrary() {
     shelfContainer.appendChild(btnRight);
     shelfContainer.appendChild(woodLedge);
     libraryGrid.appendChild(shelfContainer);
+
+  } else {
+    // Zoomed-Out View: Entire library is a horizontal corridor of bookcase bays that scroll together
+    const booksPerShelf = Math.ceil(books.length / 4);
+    
+    // Slice books into 4 shelves
+    const shelvesBooks = [
+      books.slice(0, booksPerShelf),
+      books.slice(booksPerShelf, booksPerShelf * 2),
+      books.slice(booksPerShelf * 2, booksPerShelf * 3),
+      books.slice(booksPerShelf * 3)
+    ];
+
+    const booksPerBay = 6;
+    const numBays = Math.max(5, Math.ceil(booksPerShelf / booksPerBay)); // Keep at least 5 bays
+
+    // Create the library wall container
+    const libraryWall = document.createElement('div');
+    libraryWall.className = 'library-wall';
+
+    // Add starting upright divider
+    const startUpright = document.createElement('div');
+    startUpright.className = 'bookshelf-upright';
+    libraryWall.appendChild(startUpright);
+
+    for (let bayIdx = 0; bayIdx < numBays; bayIdx++) {
+      const bayContainer = document.createElement('div');
+      bayContainer.className = 'bookshelf-bay';
+
+      // Render 4 shelves inside this bay
+      for (let shelfIdx = 0; shelfIdx < 4; shelfIdx++) {
+        const bayShelfRow = document.createElement('div');
+        bayShelfRow.className = 'bay-shelf-row';
+        bayShelfRow.dataset.shelfIndex = shelfIdx;
+
+        // Get books for this shelf in this bay
+        const start = bayIdx * booksPerBay;
+        const bayBooks = shelvesBooks[shelfIdx].slice(start, start + booksPerBay);
+
+        bayBooks.forEach(book => {
+          const bookStyles = getSpineStyles(book.title);
+          const bookEl = document.createElement('div');
+          bookEl.className = 'bookshelf-book';
+          bookEl.style.backgroundColor = bookStyles.bg;
+          bookEl.style.color = bookStyles.text;
+          bookEl.style.borderLeft = `3px solid ${bookStyles.accent}`;
+          
+          const pages = book.pages || 300;
+          const thickness = Math.min(55, Math.max(35, Math.round(pages / 10 + 15)));
+          bookEl.style.setProperty('--book-thickness', `${thickness}px`);
+          
+          bookEl.innerHTML = `
+            <div class="book-spine">
+              <div class="book-spine-accent-line" style="background-color: ${bookStyles.accent};"></div>
+              <div class="book-spine-title-container">
+                <span class="book-spine-title">${book.title}</span>
+              </div>
+              <div class="book-spine-author" style="color: ${bookStyles.text === '#FFFFFF' ? 'rgba(255,255,255,0.75)' : 'rgba(30,18,20,0.75)'};">
+                ${book.author}
+              </div>
+            </div>
+          `;
+          
+          bayShelfRow.appendChild(bookEl);
+        });
+
+        // Click handler to zoom in on this shelf index
+        let shelfMousedownX = 0;
+        let shelfMousedownY = 0;
+        
+        bayShelfRow.addEventListener('mousedown', (e) => {
+          shelfMousedownX = e.clientX;
+          shelfMousedownY = e.clientY;
+        });
+        
+        bayShelfRow.addEventListener('click', (e) => {
+          const deltaX = Math.abs(e.clientX - shelfMousedownX);
+          const deltaY = Math.abs(e.clientY - shelfMousedownY);
+          if (deltaX > 10 || deltaY > 10) return; // Dragging, don't zoom
+          
+          zoomedShelfIndex = shelfIdx;
+          renderLibrary();
+        });
+
+        const shelfWood = document.createElement('div');
+        shelfWood.className = 'bookshelf-wood';
+
+        bayContainer.appendChild(bayShelfRow);
+        bayContainer.appendChild(shelfWood);
+      }
+
+      libraryWall.appendChild(bayContainer);
+
+      // Add upright divider after the bay
+      const upright = document.createElement('div');
+      upright.className = 'bookshelf-upright';
+      libraryWall.appendChild(upright);
+    }
+
+    libraryGrid.appendChild(libraryWall);
+
+    // Drag-to-scroll implementation for libraryGrid itself (zoomed out)
+    let isDown = false;
+    let startX;
+    let scrollLeft;
+    
+    libraryGrid.addEventListener('mousedown', (e) => {
+      if (zoomedShelfIndex !== null) return;
+      if (e.target.closest('.shelf-nav-btn')) return;
+      isDown = true;
+      libraryGrid.classList.add('active-dragging');
+      startX = e.pageX - libraryGrid.offsetLeft;
+      scrollLeft = libraryGrid.scrollLeft;
+    });
+    
+    libraryGrid.addEventListener('mouseleave', () => {
+      isDown = false;
+      libraryGrid.classList.remove('active-dragging');
+    });
+    
+    libraryGrid.addEventListener('mouseup', () => {
+      isDown = false;
+      libraryGrid.classList.remove('active-dragging');
+    });
+    
+    libraryGrid.addEventListener('mousemove', (e) => {
+      if (!isDown) return;
+      e.preventDefault();
+      const x = e.pageX - libraryGrid.offsetLeft;
+      const walk = (x - startX) * 2;
+      libraryGrid.scrollLeft = scrollLeft - walk;
+    });
+
+    // Create navigation buttons for the entire library grid
+    const btnLeft = document.createElement('button');
+    btnLeft.className = 'shelf-nav-btn left';
+    btnLeft.type = 'button';
+    btnLeft.setAttribute('aria-label', 'Scroll library left');
+    btnLeft.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>`;
+    
+    const btnRight = document.createElement('button');
+    btnRight.className = 'shelf-nav-btn right';
+    btnRight.type = 'button';
+    btnRight.setAttribute('aria-label', 'Scroll library right');
+    btnRight.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
+    
+    btnLeft.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const scrollAmount = Math.min(libraryGrid.clientWidth * 0.75, 500);
+      libraryGrid.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
+    });
+    
+    btnRight.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const scrollAmount = Math.min(libraryGrid.clientWidth * 0.75, 500);
+      libraryGrid.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    });
+
+    libraryGrid.addEventListener('mouseenter', () => {
+      if (zoomedShelfIndex !== null) return;
+      const canScroll = libraryGrid.scrollWidth > libraryGrid.clientWidth;
+      btnLeft.style.display = canScroll ? 'flex' : 'none';
+      btnRight.style.display = canScroll ? 'flex' : 'none';
+    });
+
+    libraryGrid.appendChild(btnLeft);
+    libraryGrid.appendChild(btnRight);
   }
 }
 

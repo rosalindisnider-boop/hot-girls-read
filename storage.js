@@ -1,4 +1,4 @@
-import { PRESEEDED_BOOKS } from './books.js?v=4';
+import { PRESEEDED_BOOKS } from './books.js?v=5';
 
 const STORAGE_KEYS = {
   POSTS: 'hotgirlsread_posts',
