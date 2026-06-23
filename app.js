@@ -1304,8 +1304,8 @@ function renderLibrary() {
     }
   }
 
-  // Calculate the maximum number of bays across all 4 shelves (ensure at least 1)
-  const numBays = Math.max(1, 
+  // Calculate the maximum number of bays across all 4 shelves (ensure at least 3 to always show 3 columns)
+  const numBays = Math.max(3, 
     shelfBays[0].length, 
     shelfBays[1].length, 
     shelfBays[2].length, 

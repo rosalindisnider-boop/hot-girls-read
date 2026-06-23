@@ -2601,10 +2601,38 @@ header {
   gap: 0;
   padding: 16px 20px 40px;
   position: relative;
-  width: 100%;
+  width: 658px;
+  max-width: 100%;
+  margin: 0 auto;
   border-radius: var(--radius-lg);
   background: rgba(30, 15, 17, 0.05);
   box-shadow: inset 0 8px 32px rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-primary) rgba(30, 15, 17, 0.1);
+}
+
+/* Custom Scrollbar for non-zoomed Library Grid */
+.library-grid:not(.zoomed-active)::-webkit-scrollbar {
+  height: 10px;
+  display: block;
+}
+.library-grid:not(.zoomed-active)::-webkit-scrollbar-track {
+  background: rgba(30, 15, 17, 0.08);
+  border-radius: var(--radius-full);
+  margin: 0 20px;
+}
+.library-grid:not(.zoomed-active)::-webkit-scrollbar-thumb {
+  background: var(--color-primary);
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  cursor: pointer;
+}
+.library-grid:not(.zoomed-active)::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 .library-grid.zoomed-active {
