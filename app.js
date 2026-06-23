@@ -166,6 +166,7 @@ const libraryViewContainer = document.getElementById('library-view-container');
 const libraryGrid = document.getElementById('library-grid');
 const btnLibraryZoomOut = document.getElementById('btn-library-zoom-out');
 const btnLibraryAddMock = document.getElementById('btn-library-add-mock');
+const btnLibraryAddBlankMock = document.getElementById('btn-library-add-blank-mock');
 
 // Refresh Page Logo Link
 const logoRefresh = document.getElementById('logo-refresh');
@@ -1196,7 +1197,7 @@ function renderBookDetailsPage(book) {
 
 
 // Helper to generate a consistent premium color palette style for book spines
-function getSpineStyles(title) {
+function getSpineStyles(title, bookId = '') {
   const spineColors = [
     { bg: '#8C2E3C', text: '#FFFFFF', accent: '#E295A2' }, // Deep Burgundy
     { bg: '#3E5E4E', text: '#FFFFFF', accent: '#A3B899' }, // Sage Olive
@@ -1206,9 +1207,10 @@ function getSpineStyles(title) {
     { bg: '#5C4A42', text: '#FFFFFF', accent: '#D9C3B0' }, // Charcoal Brown
     { bg: '#E6D7C3', text: '#1E1214', accent: '#8C2E3C' }  // Oatmeal Cream
   ];
+  const seed = (title && title.trim()) ? title : (bookId || '');
   let hash = 0;
-  for (let i = 0; i < title.length; i++) {
-    hash = title.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < seed.length; i++) {
+    hash = seed.charCodeAt(i) + ((hash << 5) - hash);
   }
   const index = Math.abs(hash) % spineColors.length;
   return spineColors[index];
@@ -1323,7 +1325,7 @@ function renderLibrary() {
     bookRow.className = 'bookshelf-row';
     
     shelfBooks.forEach(book => {
-      const bookStyles = getSpineStyles(book.title);
+      const bookStyles = getSpineStyles(book.title, book.id);
       const bookEl = document.createElement('div');
       bookEl.className = 'bookshelf-book';
       bookEl.style.backgroundColor = bookStyles.bg;
@@ -1458,7 +1460,7 @@ function renderLibrary() {
         const bayBooks = (shelfBays[shelfIdx] && shelfBays[shelfIdx][bayIdx]) || [];
 
         bayBooks.forEach(book => {
-          const bookStyles = getSpineStyles(book.title);
+          const bookStyles = getSpineStyles(book.title, book.id);
           const bookEl = document.createElement('div');
           bookEl.className = 'bookshelf-book';
           bookEl.style.backgroundColor = bookStyles.bg;
@@ -2257,6 +2259,54 @@ function setupEventListeners() {
         btnLibraryAddMock.innerHTML = `Adding ${count}/50...`;
       }
       btnLibraryAddMock.innerHTML = `🌸 Added 50 Test Books!`;
+      loadProfile();
+      renderLibrary();
+      if (!isFirebaseConfigured) {
+        renderFeed();
+      }
+    });
+  }
+
+  if (btnLibraryAddBlankMock) {
+    btnLibraryAddBlankMock.addEventListener('click', async () => {
+      const mockBooks = [];
+      for (let i = 1; i <= 100; i++) {
+        mockBooks.push({
+          id: `mock_blank_${i}_${Date.now()}`,
+          title: "",
+          author: "",
+          cover: `https://picsum.photos/seed/blank${i}/200/300`,
+          genre: "Blank",
+          pages: 120 + (i * 3) % 200,
+          description: `A blank test book (index ${i}) for verifying horizontal scrolling.`
+        });
+      }
+      
+      btnLibraryAddBlankMock.disabled = true;
+      let count = 0;
+      btnLibraryAddBlankMock.innerHTML = `Adding 0/100...`;
+      for (const book of mockBooks) {
+        const newPost = {
+          id: `mock_post_blank_${count}_${Date.now()}`,
+          user: {
+            name: userProfile ? userProfile.name : "Anonymous",
+            username: userProfile ? userProfile.username : "me",
+            avatar: userProfile ? userProfile.avatar : ""
+          },
+          book: book,
+          status: "finished",
+          rating: 5,
+          comment: "Added automatically for testing horizontal shelves.",
+          likes: 0,
+          likedByUser: false,
+          comments: [],
+          timestamp: "Just now"
+        };
+        await addPost(newPost);
+        count++;
+        btnLibraryAddBlankMock.innerHTML = `Adding ${count}/100...`;
+      }
+      btnLibraryAddBlankMock.innerHTML = `📖 Added 100 Blank Books!`;
       loadProfile();
       renderLibrary();
       if (!isFirebaseConfigured) {
