@@ -1,0 +1,10 @@
+{
+  "name": "hot-girls-read",
+  "version": "1.0.0",
+  "description": "A premium, modern social reading dashboard.",
+  "scripts": {
+    "start": "python -m http.server 8001",
+    "check": "node --check app.js storage.js books.js firebase-config.js"
+  },
+  "private": true
+}

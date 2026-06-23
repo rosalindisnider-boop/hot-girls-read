@@ -2,7 +2,8 @@ import {
   getProfile, saveProfile, getPosts, addPost, toggleLikePost, addCommentToPost, 
   getAllBooks, saveCustomBook, getCustomBooks, searchOnlineLibrary, updatePost, 
   getFriendsList, getAllUsers, signUpUser, signInUser, signOutUser, subscribeToAuthChanges, 
-  registerPostsUpdateListener, isFirebaseConfigured, fetchFriends, toggleFriend 
+  registerPostsUpdateListener, isFirebaseConfigured, fetchFriends, toggleFriend,
+  saveSwipedBook, getRecommendedBooks
 } from './storage.js?v=5';
 
 // Application State
@@ -11,6 +12,12 @@ let selectedBookForPost = null;
 let currentRatingSelection = 0;
 let userProfile = null;
 let searchTimeoutId = null;
+
+// Swiping & Discover Mode State
+let swipeQueue = [];
+let isFetchingSwipeQueue = false;
+let swipedSessionCount = 0;
+let activeLibraryTab = 'shelf';
 let editingPostId = null;
 let currentView = 'feed';
 let previousView = 'feed';
@@ -96,6 +103,22 @@ const browseResultsUsersList = document.getElementById('browse-results-users-lis
 const browseResultsBooksSection = document.getElementById('browse-results-books-section');
 const browseResultsBooksGrid = document.getElementById('browse-results-books-grid');
 const browseResultsEmpty = document.getElementById('browse-results-empty');
+
+// Discover View & Swipe Recommender DOM Selection
+const btnTabDiscover = document.getElementById('btn-tab-discover');
+const discoverViewContainer = document.getElementById('discover-view-container');
+const swipeCardDeck = document.getElementById('swipe-card-deck');
+const btnSwipeNope = document.getElementById('btn-swipe-nope');
+const btnSwipeLike = document.getElementById('btn-swipe-like');
+const swipeCounterBadge = document.getElementById('swipe-counter-badge');
+const swipeCardLoading = document.getElementById('swipe-card-loading');
+
+// Library Sub-tab Elements
+const btnLibraryShelfView = document.getElementById('btn-library-shelf-view');
+const btnLibraryToreadView = document.getElementById('btn-library-toread-view');
+const libraryToreadContainer = document.getElementById('library-toread-container');
+const libraryToreadGrid = document.getElementById('library-toread-grid');
+const libraryToreadEmpty = document.getElementById('library-toread-empty');
 
 const bookDetailsPageView = document.getElementById('book-details-page-view');
 const btnBookDetailsBack = document.getElementById('btn-book-details-back');
@@ -775,6 +798,7 @@ function switchView(viewName, extraParam = null) {
   
   // Update nav tabs active state
   if (btnTabFeed) btnTabFeed.classList.toggle('active', viewName === 'feed');
+  if (btnTabDiscover) btnTabDiscover.classList.toggle('active', viewName === 'discover');
   if (btnTabLibrary) btnTabLibrary.classList.toggle('active', viewName === 'library');
   if (btnTabBrowse) btnTabBrowse.classList.toggle('active', viewName === 'browse');
 
@@ -784,6 +808,7 @@ function switchView(viewName, extraParam = null) {
   // Hide new page views by default
   if (browseView) browseView.style.display = 'none';
   if (bookDetailsPageView) bookDetailsPageView.style.display = 'none';
+  if (discoverViewContainer) discoverViewContainer.style.display = 'none';
 
   if (viewName === 'feed') {
     viewedProfileUser = null;
@@ -795,6 +820,16 @@ function switchView(viewName, extraParam = null) {
     // Hide others
     libraryViewContainer.style.display = 'none';
     profileDashboardView.style.display = 'none';
+  } else if (viewName === 'discover') {
+    viewedProfileUser = null;
+    btnNewPostTrigger.style.display = 'none';
+    feedFilters.style.display = 'none';
+    feedContainer.style.display = 'none';
+    libraryViewContainer.style.display = 'none';
+    profileDashboardView.style.display = 'none';
+
+    if (discoverViewContainer) discoverViewContainer.style.display = 'block';
+    initSwipeRecommender();
   } else if (viewName === 'library') {
     viewedProfileUser = null;
     // Hide Feed elements
@@ -1181,6 +1216,16 @@ function getSpineStyles(title) {
 
 // Render My Library View (Interactive wood bookshelf with expandable book spines)
 function renderLibrary() {
+  if (activeLibraryTab === 'toread') {
+    libraryGrid.style.display = 'none';
+    if (libraryToreadContainer) libraryToreadContainer.style.display = 'block';
+    renderLibraryToRead();
+    return;
+  }
+  
+  libraryGrid.style.display = zoomedShelfIndex !== null ? 'grid' : 'flex';
+  if (libraryToreadContainer) libraryToreadContainer.style.display = 'none';
+
   const posts = getPosts();
   const userPosts = userProfile ? posts.filter(p => p.user.username === userProfile.username) : [];
   
@@ -2332,8 +2377,50 @@ function setupEventListeners() {
 
   // Header Navigation Tab Triggers
   if (btnTabFeed) btnTabFeed.addEventListener('click', () => switchView('feed'));
+  if (btnTabDiscover) btnTabDiscover.addEventListener('click', () => switchView('discover'));
   if (btnTabLibrary) btnTabLibrary.addEventListener('click', () => switchView('library'));
   if (btnTabBrowse) btnTabBrowse.addEventListener('click', () => switchView('browse'));
+
+  // Swipe Recommender Controls
+  if (btnSwipeNope) btnSwipeNope.addEventListener('click', () => triggerSwipe('nope'));
+  if (btnSwipeLike) btnSwipeLike.addEventListener('click', () => triggerSwipe('like'));
+
+  // Library Views Toggle
+  if (btnLibraryShelfView) {
+    btnLibraryShelfView.addEventListener('click', () => {
+      activeLibraryTab = 'shelf';
+      btnLibraryShelfView.classList.add('active');
+      btnLibraryToreadView.classList.remove('active');
+      
+      btnLibraryShelfView.style.borderColor = 'var(--color-primary)';
+      btnLibraryShelfView.style.color = 'var(--color-primary)';
+      btnLibraryToreadView.style.borderColor = 'transparent';
+      btnLibraryToreadView.style.color = 'var(--color-text-muted)';
+      
+      libraryGrid.style.display = zoomedShelfIndex !== null ? 'grid' : 'flex';
+      libraryToreadContainer.style.display = 'none';
+      
+      renderLibrary();
+    });
+  }
+
+  if (btnLibraryToreadView) {
+    btnLibraryToreadView.addEventListener('click', () => {
+      activeLibraryTab = 'toread';
+      btnLibraryToreadView.classList.add('active');
+      btnLibraryShelfView.classList.remove('active');
+      
+      btnLibraryToreadView.style.borderColor = 'var(--color-primary)';
+      btnLibraryToreadView.style.color = 'var(--color-primary)';
+      btnLibraryShelfView.style.borderColor = 'transparent';
+      btnLibraryShelfView.style.color = 'var(--color-text-muted)';
+      
+      libraryGrid.style.display = 'none';
+      libraryToreadContainer.style.display = 'block';
+      
+      renderLibraryToRead();
+    });
+  }
 
   // Toggle Login/Signup Modes
   if (btnToggleAuth) {
@@ -2421,6 +2508,333 @@ function escapeHTML(str) {
     }[tag] || tag)
   );
 }
+
+// -------------------------------------------------------------
+// Swipe Recommender & Discover View Logic
+// -------------------------------------------------------------
+async function initSwipeRecommender() {
+  if (swipeQueue.length === 0) {
+    if (swipeCounterBadge) swipeCounterBadge.textContent = 'Swiped: ' + swipedSessionCount;
+    await refuelSwipeQueue();
+  } else {
+    if (swipeCounterBadge) swipeCounterBadge.textContent = 'Swiped: ' + swipedSessionCount;
+    renderSwipeStack();
+  }
+}
+
+async function refuelSwipeQueue() {
+  if (isFetchingSwipeQueue) return;
+  isFetchingSwipeQueue = true;
+
+  if (swipeCardLoading) swipeCardLoading.style.display = 'flex';
+  
+  try {
+    const books = await getRecommendedBooks(20);
+    swipeQueue.push(...books);
+  } catch (err) {
+    console.error("Failed to refuel swipe queue:", err);
+  } finally {
+    isFetchingSwipeQueue = false;
+    if (swipeCardLoading) swipeCardLoading.style.display = 'none';
+    renderSwipeStack();
+  }
+}
+
+function renderSwipeStack() {
+  const existingCards = swipeCardDeck.querySelectorAll('.swipe-card');
+  existingCards.forEach(c => c.remove());
+
+  if (swipeQueue.length === 0) {
+    if (isFetchingSwipeQueue) {
+      if (swipeCardLoading) swipeCardLoading.style.display = 'flex';
+    } else {
+      const emptyDiv = document.createElement('div');
+      emptyDiv.className = 'swipe-card-loading';
+      emptyDiv.style.display = 'flex';
+      emptyDiv.style.flexDirection = 'column';
+      emptyDiv.style.alignItems = 'center';
+      emptyDiv.style.justifyContent = 'center';
+      emptyDiv.innerHTML = `
+        <span style="font-size: 3rem; display: block; margin-bottom: 12px;">📚</span>
+        <p style="font-weight: 600; color: var(--color-text-muted); font-family: var(--font-serif); font-size: 1.1rem; text-align: center;">You've swiped through all available recommendations!</p>
+        <button class="btn-primary" id="btn-swipe-refresh" style="margin-top: 16px; font-size: 0.85rem; padding: 8px 20px;">Refresh Stack</button>
+      `;
+      swipeCardDeck.appendChild(emptyDiv);
+      const btnRefresh = document.getElementById('btn-swipe-refresh');
+      if (btnRefresh) {
+        btnRefresh.addEventListener('click', () => {
+          refuelSwipeQueue();
+        });
+      }
+    }
+    return;
+  }
+
+  if (swipeCardLoading) swipeCardLoading.style.display = 'none';
+
+  const cardsToRender = swipeQueue.slice(0, 3);
+  // Render in reverse order so the top one is on top in DOM layer
+  [...cardsToRender].reverse().forEach((book) => {
+    const originalIndex = swipeQueue.indexOf(book); // 0 (top), 1 (middle), 2 (bottom)
+    const cardEl = document.createElement('div');
+    cardEl.className = 'swipe-card';
+    cardEl.setAttribute('data-book-id', book.id);
+    cardEl.style.zIndex = (10 - originalIndex).toString();
+    
+    if (originalIndex === 0) {
+      cardEl.classList.add('swipe-card-top');
+    } else if (originalIndex === 1) {
+      cardEl.classList.add('swipe-card-middle');
+      cardEl.style.transform = 'translate3d(0, 10px, -20px) scale(0.95)';
+      cardEl.style.opacity = '0.9';
+      cardEl.style.pointerEvents = 'none';
+    } else if (originalIndex === 2) {
+      cardEl.classList.add('swipe-card-bottom');
+      cardEl.style.transform = 'translate3d(0, 20px, -40px) scale(0.9)';
+      cardEl.style.opacity = '0.8';
+      cardEl.style.pointerEvents = 'none';
+    }
+
+    const titleEscaped = escapeHTML(book.title);
+    const authorEscaped = escapeHTML(book.author);
+    const genreEscaped = escapeHTML(book.genre);
+    const descEscaped = escapeHTML(book.description);
+
+    cardEl.innerHTML = `
+      <div class="swipe-card-cover-wrapper">
+        <img class="swipe-card-cover" src="${book.cover}" alt="${titleEscaped} Cover" draggable="false">
+        <div class="swipe-stamp stamp-like">LIKE</div>
+        <div class="swipe-stamp stamp-nope">NOPE</div>
+      </div>
+      <div class="swipe-card-details">
+        <h3 class="swipe-card-title">${titleEscaped}</h3>
+        <h4 class="swipe-card-author">by ${authorEscaped}</h4>
+        <span class="swipe-card-genre">${genreEscaped}</span>
+        <p class="swipe-card-desc">${descEscaped}</p>
+      </div>
+    `;
+
+    swipeCardDeck.appendChild(cardEl);
+    
+    if (originalIndex === 0) {
+      initCardDrag(cardEl, book);
+    }
+  });
+}
+
+function initCardDrag(cardEl, book) {
+  let isDragging = false;
+  let startX = 0;
+  let startY = 0;
+  let currentX = 0;
+  let currentY = 0;
+  
+  const stampLike = cardEl.querySelector('.stamp-like');
+  const stampNope = cardEl.querySelector('.stamp-nope');
+
+  cardEl.addEventListener('pointerdown', (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    cardEl.style.transition = 'none';
+    cardEl.setPointerCapture(e.pointerId);
+  });
+
+  cardEl.addEventListener('pointermove', (e) => {
+    if (!isDragging) return;
+    currentX = e.clientX;
+    currentY = e.clientY;
+    
+    const deltaX = currentX - startX;
+    const deltaY = currentY - startY;
+    
+    const rotation = deltaX * 0.08;
+    cardEl.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0) rotate(${rotation}deg)`;
+    
+    if (deltaX > 20) {
+      if (stampLike) stampLike.style.opacity = Math.min(1, (deltaX - 20) / 100).toString();
+      if (stampNope) stampNope.style.opacity = '0';
+    } else if (deltaX < -20) {
+      if (stampNope) stampNope.style.opacity = Math.min(1, (-deltaX - 20) / 100).toString();
+      if (stampLike) stampLike.style.opacity = '0';
+    } else {
+      if (stampLike) stampLike.style.opacity = '0';
+      if (stampNope) stampNope.style.opacity = '0';
+    }
+  });
+
+  cardEl.addEventListener('pointerup', (e) => {
+    if (!isDragging) return;
+    isDragging = false;
+    cardEl.releasePointerCapture(e.pointerId);
+
+    const deltaX = currentX - startX;
+    const threshold = 130;
+
+    if (deltaX > threshold) {
+      swipeRight(cardEl, book);
+    } else if (deltaX < -threshold) {
+      swipeLeft(cardEl, book);
+    } else {
+      cardEl.style.transition = 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+      cardEl.style.transform = 'translate3d(0, 0, 0) rotate(0deg)';
+      if (stampLike) stampLike.style.opacity = '0';
+      if (stampNope) stampNope.style.opacity = '0';
+    }
+  });
+
+  cardEl.addEventListener('pointercancel', (e) => {
+    if (!isDragging) return;
+    isDragging = false;
+    cardEl.releasePointerCapture(e.pointerId);
+    cardEl.style.transition = 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+    cardEl.style.transform = 'translate3d(0, 0, 0) rotate(0deg)';
+    if (stampLike) stampLike.style.opacity = '0';
+    if (stampNope) stampNope.style.opacity = '0';
+  });
+}
+
+async function swipeRight(cardEl, book) {
+  cardEl.classList.add('swiping-right');
+  const stampLike = cardEl.querySelector('.stamp-like');
+  if (stampLike) stampLike.style.opacity = '1';
+  
+  swipedSessionCount++;
+  if (swipeCounterBadge) swipeCounterBadge.textContent = 'Swiped: ' + swipedSessionCount;
+  
+  await saveSwipedBook(book, 'like');
+  
+  setTimeout(() => {
+    swipeQueue.shift();
+    renderSwipeStack();
+    
+    if (swipeQueue.length < 5) {
+      refuelSwipeQueue();
+    }
+  }, 300);
+}
+
+async function swipeLeft(cardEl, book) {
+  cardEl.classList.add('swiping-left');
+  const stampNope = cardEl.querySelector('.stamp-nope');
+  if (stampNope) stampNope.style.opacity = '1';
+  
+  swipedSessionCount++;
+  if (swipeCounterBadge) swipeCounterBadge.textContent = 'Swiped: ' + swipedSessionCount;
+  
+  await saveSwipedBook(book, 'dislike');
+  
+  setTimeout(() => {
+    swipeQueue.shift();
+    renderSwipeStack();
+    
+    if (swipeQueue.length < 5) {
+      refuelSwipeQueue();
+    }
+  }, 300);
+}
+
+async function triggerSwipe(action) {
+  if (swipeQueue.length === 0 || isFetchingSwipeQueue) return;
+  
+  const cards = swipeCardDeck.querySelectorAll('.swipe-card');
+  let topCard = null;
+  cards.forEach(c => {
+    if (c.style.zIndex === '10') topCard = c;
+  });
+  
+  if (!topCard && cards.length > 0) {
+    topCard = cards[0];
+  }
+
+  if (topCard) {
+    const book = swipeQueue[0];
+    if (action === 'like') {
+      await swipeRight(topCard, book);
+    } else {
+      await swipeLeft(topCard, book);
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// Library "To Read" Tab Rendering
+// -------------------------------------------------------------
+function renderLibraryToRead() {
+  const profile = getProfile();
+  const toRead = profile.toReadList || [];
+
+  libraryToreadGrid.innerHTML = '';
+
+  if (toRead.length === 0) {
+    libraryToreadEmpty.style.display = 'block';
+    libraryToreadGrid.style.display = 'none';
+    return;
+  }
+
+  libraryToreadEmpty.style.display = 'none';
+  libraryToreadGrid.style.display = 'grid';
+
+  toRead.forEach(book => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.padding = '12px';
+    card.style.display = 'flex';
+    card.style.flexDirection = 'column';
+    card.style.borderRadius = 'var(--radius-md)';
+    card.style.border = '1px solid var(--color-border)';
+    card.style.boxShadow = 'var(--shadow-sm)';
+    card.style.background = 'var(--color-bg)';
+    
+    const titleEscaped = escapeHTML(book.title);
+    const authorEscaped = escapeHTML(book.author);
+    
+    card.innerHTML = `
+      <div style="width: 100%; height: 220px; overflow: hidden; border-radius: var(--radius-sm); margin-bottom: 12px; background-color: var(--color-accent-light); display: flex; align-items: center; justify-content: center;">
+        <img src="${book.cover}" alt="${titleEscaped} Cover" style="width: 100%; height: 100%; object-fit: cover; cursor: pointer;" draggable="false">
+      </div>
+      <h4 style="font-family: var(--font-serif); color: var(--color-primary); font-size: 0.95rem; margin: 0 0 4px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${titleEscaped}">${titleEscaped}</h4>
+      <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0 0 12px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">by ${authorEscaped}</p>
+      
+      <div style="margin-top: auto; display: flex; gap: 8px;">
+        <button class="btn-primary btn-start-reading" style="flex: 1; font-size: 0.75rem; padding: 6px 8px; border-radius: var(--radius-sm);">📖 Start</button>
+        <button class="btn-secondary btn-remove-toread" style="font-size: 0.75rem; padding: 6px 8px; border-radius: var(--radius-sm);" title="Remove">✖️</button>
+      </div>
+    `;
+
+    const coverImg = card.querySelector('img');
+    coverImg.addEventListener('click', () => {
+      switchView('book_details', book);
+    });
+
+    const btnStart = card.querySelector('.btn-start-reading');
+    btnStart.addEventListener('click', () => {
+      openPostModal(book);
+    });
+
+    const btnRemove = card.querySelector('.btn-remove-toread');
+    btnRemove.addEventListener('click', async () => {
+      const p = getProfile();
+      p.toReadList = (p.toReadList || []).filter(b => b.id !== book.id);
+      await saveProfile(p);
+      renderLibraryToRead();
+    });
+
+    libraryToreadGrid.appendChild(card);
+  });
+}
+
+// Keyboard shortcuts for swiping when Discover is active
+document.addEventListener('keydown', (e) => {
+  if (currentView !== 'discover') return;
+  if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+
+  if (e.key === 'ArrowRight') {
+    triggerSwipe('like');
+  } else if (e.key === 'ArrowLeft') {
+    triggerSwipe('nope');
+  }
+});
 
 // Start Application
 window.addEventListener('DOMContentLoaded', init);

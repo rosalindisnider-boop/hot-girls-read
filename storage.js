@@ -45,7 +45,10 @@ const DEFAULT_PROFILE = {
   bio: "Spicy romance enthusiast. Always reading past my bedtime. ☕️✨",
   readingGoal: 100,
   booksRead: 80,
-  friends: []
+  friends: [],
+  toReadList: [],
+  genrePreferences: {},
+  swipedBookIds: []
 };
 
 const SEED_POSTS = [
@@ -436,6 +439,7 @@ export function registerPostsUpdateListener(callback) {
 }
 
 // -------------------------------------------------------------
+
 // User Profile Logic
 // -------------------------------------------------------------
 export function getProfile() {
@@ -447,10 +451,16 @@ export function getProfile() {
     }
     const profile = JSON.parse(data);
     if (!profile.friends) profile.friends = [];
+    if (!profile.toReadList) profile.toReadList = [];
+    if (!profile.genrePreferences) profile.genrePreferences = {};
+    if (!profile.swipedBookIds) profile.swipedBookIds = [];
     return profile;
   }
   const profile = cachedProfile || DEFAULT_PROFILE;
   if (!profile.friends) profile.friends = [];
+  if (!profile.toReadList) profile.toReadList = [];
+  if (!profile.genrePreferences) profile.genrePreferences = {};
+  if (!profile.swipedBookIds) profile.swipedBookIds = [];
   return profile;
 }
 
@@ -1114,4 +1124,144 @@ async function seedFirestoreDatabase() {
   } catch (err) {
     console.error("Failed to seed database:", err);
   }
+}
+
+// -------------------------------------------------------------
+// Swipe & Recommendation Logic
+// -------------------------------------------------------------
+export async function saveSwipedBook(book, action) {
+  const profile = getProfile();
+  if (!profile.swipedBookIds) profile.swipedBookIds = [];
+  if (!profile.swipedBookIds.includes(book.id)) {
+    profile.swipedBookIds.push(book.id);
+  }
+
+  if (action === 'like') {
+    if (!profile.toReadList) profile.toReadList = [];
+    const exists = profile.toReadList.some(b => b.id === book.id);
+    if (!exists) {
+      profile.toReadList.push(book);
+    }
+    // Update preferences
+    if (book.genre) {
+      profile.genrePreferences[book.genre] = (profile.genrePreferences[book.genre] || 0) + 2;
+    }
+    if (book.author) {
+      profile.genrePreferences[book.author] = (profile.genrePreferences[book.author] || 0) + 1;
+    }
+  } else if (action === 'dislike') {
+    if (book.genre) {
+      profile.genrePreferences[book.genre] = (profile.genrePreferences[book.genre] || 0) - 1;
+    }
+  }
+
+  await saveProfile(profile);
+  return profile;
+}
+
+export async function getRecommendedBooks(limit = 20) {
+  const profile = getProfile();
+  const swipedIds = new Set(profile.swipedBookIds || []);
+  
+  // Only filter out books the user has actually added (To Read list, posted about, or custom added)
+  const userPosts = getPosts().filter(p => p.user && p.user.username === profile.username);
+  const userPostedBooks = userPosts.map(p => p.book);
+  const userLibraryBooks = [
+    ...(profile.toReadList || []),
+    ...getCustomBooks(),
+    ...userPostedBooks
+  ];
+  
+  const libraryTitles = new Set(
+    userLibraryBooks.map(b => b.title.toLowerCase().trim())
+  );
+
+  const defaultTerms = ['romance', 'fantasy', 'thriller', 'mystery', 'science fiction', 'biography', 'history', 'fiction'];
+  
+  // Sort user preferences
+  const prefs = profile.genrePreferences || {};
+  const sortedPrefs = Object.entries(prefs)
+    .filter(([_, score]) => score > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key]) => key);
+
+  let searchTerms = [];
+  if (sortedPrefs.length > 0) {
+    if (Math.random() > 0.2) {
+      const topCount = Math.min(3, sortedPrefs.length);
+      const chosen = sortedPrefs[Math.floor(Math.random() * topCount)];
+      searchTerms.push(chosen);
+    }
+  }
+
+  while (searchTerms.length < 2) {
+    const randDefault = defaultTerms[Math.floor(Math.random() * defaultTerms.length)];
+    if (!searchTerms.includes(randDefault)) {
+      searchTerms.push(randDefault);
+    }
+  }
+
+  let recommended = [];
+  
+  for (const term of searchTerms) {
+    try {
+      const queryStr = defaultTerms.includes(term.toLowerCase()) ? `subject:${term}` : term;
+      const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryStr)}&maxResults=25`;
+      const resp = await fetch(url);
+      if (resp.status === 429) {
+        console.warn("Google Books API rate limited (429). Falling back to preseeded books.");
+        break;
+      }
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      if (!data.items) continue;
+
+      const books = data.items.map(item => {
+        const info = item.volumeInfo || {};
+        let cover = 'https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&w=300&q=80';
+        if (info.imageLinks) {
+          const coverSrc = info.imageLinks.thumbnail || info.imageLinks.smallThumbnail;
+          if (coverSrc) {
+            cover = coverSrc.replace(/^http:\/\//i, 'https://');
+          }
+        }
+        return {
+          id: item.id || `google_${Math.random()}`,
+          title: info.title || 'Untitled Book',
+          author: (info.authors && info.authors[0]) || 'Unknown Author',
+          cover: cover,
+          genre: (info.categories && info.categories[0]) || 'Fiction',
+          pages: info.pageCount || 300,
+          description: info.description || 'No synopsis available for this book.'
+        };
+      });
+
+      books.forEach(b => {
+        const idMatch = swipedIds.has(b.id);
+        const titleMatch = libraryTitles.has(b.title.toLowerCase().trim());
+        const alreadyAdded = recommended.some(r => r.id === b.id || r.title.toLowerCase() === b.title.toLowerCase());
+        if (!idMatch && !titleMatch && !alreadyAdded) {
+          recommended.push(b);
+        }
+      });
+
+      if (recommended.length >= limit) break;
+    } catch (e) {
+      console.error(`Recommendation fetch failed for term "${term}":`, e);
+    }
+  }
+
+  if (recommended.length < limit) {
+    const preseeded = PRESEEDED_BOOKS;
+    preseeded.forEach(b => {
+      const idMatch = swipedIds.has(b.id);
+      const titleMatch = libraryTitles.has(b.title.toLowerCase().trim());
+      const alreadyAdded = recommended.some(r => r.id === b.id || r.title.toLowerCase() === b.title.toLowerCase());
+      if (!idMatch && !titleMatch && !alreadyAdded) {
+        recommended.push(b);
+      }
+    });
+  }
+
+  return recommended.slice(0, limit);
 }
