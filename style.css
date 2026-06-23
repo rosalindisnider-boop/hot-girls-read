@@ -2656,6 +2656,11 @@ header {
   box-sizing: border-box;
 }
 
+.library-wall .bookshelf-container {
+  width: max-content;
+  min-width: 100%;
+}
+
 /* Bookcase Upright Divider (Vertical Wood Pillar) */
 .bookshelf-upright {
   width: 18px;
