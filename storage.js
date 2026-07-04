@@ -48,6 +48,7 @@ const DEFAULT_PROFILE = {
   friends: [],
   toReadList: [],
   genrePreferences: {},
+  authorPreferences: {},
   swipedBookIds: []
 };
 
@@ -453,6 +454,7 @@ export function getProfile() {
     if (!profile.friends) profile.friends = [];
     if (!profile.toReadList) profile.toReadList = [];
     if (!profile.genrePreferences) profile.genrePreferences = {};
+    if (!profile.authorPreferences) profile.authorPreferences = {};
     if (!profile.swipedBookIds) profile.swipedBookIds = [];
     return profile;
   }
@@ -460,6 +462,7 @@ export function getProfile() {
   if (!profile.friends) profile.friends = [];
   if (!profile.toReadList) profile.toReadList = [];
   if (!profile.genrePreferences) profile.genrePreferences = {};
+  if (!profile.authorPreferences) profile.authorPreferences = {};
   if (!profile.swipedBookIds) profile.swipedBookIds = [];
   return profile;
 }
@@ -1136,6 +1139,9 @@ export async function saveSwipedBook(book, action) {
     profile.swipedBookIds.push(book.id);
   }
 
+  if (!profile.genrePreferences) profile.genrePreferences = {};
+  if (!profile.authorPreferences) profile.authorPreferences = {};
+
   if (action === 'like') {
     if (!profile.toReadList) profile.toReadList = [];
     const exists = profile.toReadList.some(b => b.id === book.id);
@@ -1147,11 +1153,14 @@ export async function saveSwipedBook(book, action) {
       profile.genrePreferences[book.genre] = (profile.genrePreferences[book.genre] || 0) + 2;
     }
     if (book.author) {
-      profile.genrePreferences[book.author] = (profile.genrePreferences[book.author] || 0) + 1;
+      profile.authorPreferences[book.author] = (profile.authorPreferences[book.author] || 0) + 1;
     }
   } else if (action === 'dislike') {
     if (book.genre) {
       profile.genrePreferences[book.genre] = (profile.genrePreferences[book.genre] || 0) - 1;
+    }
+    if (book.author) {
+      profile.authorPreferences[book.author] = (profile.authorPreferences[book.author] || 0) - 1;
     }
   }
 
@@ -1159,7 +1168,42 @@ export async function saveSwipedBook(book, action) {
   return profile;
 }
 
+export async function bootstrapPreferencesFromShelf() {
+  const profile = getProfile();
+  if (!profile.genrePreferences) profile.genrePreferences = {};
+  if (!profile.authorPreferences) profile.authorPreferences = {};
+
+  const hasGenrePrefs = Object.values(profile.genrePreferences).some(v => v > 0);
+  const hasAuthorPrefs = Object.values(profile.authorPreferences).some(v => v > 0);
+  if (hasGenrePrefs || hasAuthorPrefs) {
+    return profile; // Preferences already exist
+  }
+
+  const posts = getPosts();
+  const userPosts = posts.filter(p => p.user && p.user.username === profile.username);
+  let updated = false;
+
+  userPosts.forEach(post => {
+    if (post.book) {
+      if (post.book.genre) {
+        profile.genrePreferences[post.book.genre] = (profile.genrePreferences[post.book.genre] || 0) + 2;
+        updated = true;
+      }
+      if (post.book.author) {
+        profile.authorPreferences[post.book.author] = (profile.authorPreferences[post.book.author] || 0) + 1;
+        updated = true;
+      }
+    }
+  });
+
+  if (updated) {
+    await saveProfile(profile);
+  }
+  return profile;
+}
+
 export async function getRecommendedBooks(limit = 20) {
+  await bootstrapPreferencesFromShelf();
   const profile = getProfile();
   const swipedIds = new Set(profile.swipedBookIds || []);
   
@@ -1178,45 +1222,45 @@ export async function getRecommendedBooks(limit = 20) {
 
   const defaultTerms = ['romance', 'fantasy', 'thriller', 'mystery', 'science fiction', 'biography', 'history', 'fiction'];
   
-  // Sort user preferences
-  const prefs = profile.genrePreferences || {};
-  const sortedPrefs = Object.entries(prefs)
+  // Get preferred genres (score > 0)
+  const genrePrefs = profile.genrePreferences || {};
+  const sortedGenres = Object.entries(genrePrefs)
     .filter(([_, score]) => score > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([key]) => key);
+    .map(([genre]) => ({ type: 'genre', value: genre }));
 
-  let searchTerms = [];
-  if (sortedPrefs.length > 0) {
-    if (Math.random() > 0.2) {
-      const topCount = Math.min(3, sortedPrefs.length);
-      const chosen = sortedPrefs[Math.floor(Math.random() * topCount)];
-      searchTerms.push(chosen);
-    }
+  // Get preferred authors (score > 0)
+  const authorPrefs = profile.authorPreferences || {};
+  const sortedAuthors = Object.entries(authorPrefs)
+    .filter(([_, score]) => score > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([author]) => ({ type: 'author', value: author }));
+
+  // Interleave genres and authors to form tailored search terms
+  const tailoredTerms = [];
+  const maxLen = Math.max(sortedGenres.length, sortedAuthors.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (i < sortedGenres.length) tailoredTerms.push(sortedGenres[i]);
+    if (i < sortedAuthors.length) tailoredTerms.push(sortedAuthors[i]);
   }
 
-  while (searchTerms.length < 2) {
-    const randDefault = defaultTerms[Math.floor(Math.random() * defaultTerms.length)];
-    if (!searchTerms.includes(randDefault)) {
-      searchTerms.push(randDefault);
-    }
-  }
+  // Calculate 70/30 targets
+  const targetTailored = Math.round(limit * 0.7);
+  const targetDiscovery = limit - targetTailored;
 
-  let recommended = [];
-  
-  for (const term of searchTerms) {
+  let tailoredBooks = [];
+  let discoveryBooks = [];
+
+  // Helper to fetch and parse from Google Books API
+  async function fetchBooksFromQuery(queryStr) {
     try {
-      const queryStr = defaultTerms.includes(term.toLowerCase()) ? `subject:${term}` : term;
-      const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryStr)}&maxResults=25`;
+      const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryStr)}&maxResults=20`;
       const resp = await fetch(url);
-      if (resp.status === 429) {
-        console.warn("Google Books API rate limited (429). Falling back to preseeded books.");
-        break;
-      }
-      if (!resp.ok) continue;
+      if (!resp.ok) return [];
       const data = await resp.json();
-      if (!data.items) continue;
+      if (!data.items) return [];
 
-      const books = data.items.map(item => {
+      return data.items.map(item => {
         const info = item.volumeInfo || {};
         let cover = 'https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&w=300&q=80';
         if (info.imageLinks) {
@@ -1235,32 +1279,94 @@ export async function getRecommendedBooks(limit = 20) {
           description: info.description || 'No synopsis available for this book.'
         };
       });
-
-      books.forEach(b => {
-        const idMatch = swipedIds.has(b.id);
-        const titleMatch = libraryTitles.has(b.title.toLowerCase().trim());
-        const alreadyAdded = recommended.some(r => r.id === b.id || r.title.toLowerCase() === b.title.toLowerCase());
-        if (!idMatch && !titleMatch && !alreadyAdded) {
-          recommended.push(b);
-        }
-      });
-
-      if (recommended.length >= limit) break;
     } catch (e) {
-      console.error(`Recommendation fetch failed for term "${term}":`, e);
+      console.error(`Google Books API fetch failed for query "${queryStr}":`, e);
+      return [];
     }
   }
 
+  // Deduplication sets
+  const seenBookIds = new Set();
+  const seenBookTitles = new Set();
+
+  function isUniqueBook(b) {
+    const titleKey = b.title.toLowerCase().trim();
+    if (swipedIds.has(b.id) || libraryTitles.has(titleKey)) return false;
+    if (seenBookIds.has(b.id) || seenBookTitles.has(titleKey)) return false;
+    return true;
+  }
+
+  // 1. Fetch tailored recommendations if user has preferences
+  if (tailoredTerms.length > 0) {
+    for (const term of tailoredTerms) {
+      const queryStr = term.type === 'genre' ? `subject:${term.value}` : `inauthor:${term.value}`;
+      const results = await fetchBooksFromQuery(queryStr);
+      for (const b of results) {
+        if (isUniqueBook(b)) {
+          tailoredBooks.push(b);
+          seenBookIds.add(b.id);
+          seenBookTitles.add(b.title.toLowerCase().trim());
+        }
+      }
+      if (tailoredBooks.length >= targetTailored * 2) break;
+    }
+  }
+
+  // 2. Fetch discovery recommendations from default terms
+  const shuffledDefaults = [...defaultTerms].sort(() => Math.random() - 0.5);
+  for (const term of shuffledDefaults) {
+    const queryStr = `subject:${term}`;
+    const results = await fetchBooksFromQuery(queryStr);
+    for (const b of results) {
+      if (isUniqueBook(b)) {
+        discoveryBooks.push(b);
+        seenBookIds.add(b.id);
+        seenBookTitles.add(b.title.toLowerCase().trim());
+      }
+    }
+    if (discoveryBooks.length >= targetDiscovery * 2) break;
+  }
+
+  // 3. Combine pools according to the 70/30 split
+  let recommended = [];
+
+  const finalTailored = tailoredBooks.slice(0, targetTailored);
+  const finalDiscovery = discoveryBooks.slice(0, targetDiscovery);
+
+  let tIdx = 0;
+  let dIdx = 0;
+  while (recommended.length < limit && (tIdx < finalTailored.length || dIdx < finalDiscovery.length)) {
+    if (tIdx < finalTailored.length) {
+      recommended.push(finalTailored[tIdx++]);
+    }
+    if (recommended.length < limit && dIdx < finalDiscovery.length) {
+      recommended.push(finalDiscovery[dIdx++]);
+    }
+  }
+
+  // 4. Fill remaining spots from candidates if still empty
+  if (recommended.length < limit) {
+    while (recommended.length < limit && tIdx < tailoredBooks.length) {
+      recommended.push(tailoredBooks[tIdx++]);
+    }
+  }
+  if (recommended.length < limit) {
+    while (recommended.length < limit && dIdx < discoveryBooks.length) {
+      recommended.push(discoveryBooks[dIdx++]);
+    }
+  }
+
+  // 5. Fallback to preseeded books if still not enough
   if (recommended.length < limit) {
     const preseeded = PRESEEDED_BOOKS;
-    preseeded.forEach(b => {
-      const idMatch = swipedIds.has(b.id);
-      const titleMatch = libraryTitles.has(b.title.toLowerCase().trim());
-      const alreadyAdded = recommended.some(r => r.id === b.id || r.title.toLowerCase() === b.title.toLowerCase());
-      if (!idMatch && !titleMatch && !alreadyAdded) {
+    for (const b of preseeded) {
+      if (isUniqueBook(b)) {
         recommended.push(b);
+        seenBookIds.add(b.id);
+        seenBookTitles.add(b.title.toLowerCase().trim());
       }
-    });
+      if (recommended.length >= limit) break;
+    }
   }
 
   return recommended.slice(0, limit);
