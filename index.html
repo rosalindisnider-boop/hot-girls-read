@@ -37,7 +37,7 @@
   <header>
     <div class="header-container">
       <a href="#" class="logo" id="logo-refresh">
-        <span class="logo-icon">📖</span> HotGirls<span>Read.</span>
+        H<span class="logo-fire-icon">🔥</span>t Girls Read
       </a>
       
       <!-- Navigation Tabs -->
@@ -113,36 +113,45 @@
       </div>
 
       <!-- Discover View Container (Swipe Recommender) -->
-      <div class="discover-view-container" id="discover-view-container" style="display: none; width: 100%; max-width: 800px; margin: 0 auto;">
-        <div class="card" style="margin-bottom: 24px; padding: 20px; display: flex; align-items: center; justify-content: space-between;">
-          <div>
-            <h2 class="discover-title" style="font-family: var(--font-serif); color: var(--color-primary); font-size: 1.5rem; margin: 0;">Discover</h2>
-            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 4px; margin-bottom: 0;">Swipe right (or press → key) to like & add to your "To Read" list, left (or press ← key) to skip.</p>
+      <div class="discover-view-container" id="discover-view-container" style="display: none;">
+        <div class="discover-header-section">
+          <div class="discover-title-wrapper">
+            <h2 class="discover-title">
+              <span class="discover-fire">🔥</span>
+              <span class="discover-title-text">Discover your<br>next fire read</span>
+              <span class="discover-fire">🔥</span>
+            </h2>
+            <p class="discover-subtitle">Swipe right (or press → key) to like & add to your "To Read" list, left (or press ← key) to skip.</p>
           </div>
-          <div class="swipe-counter-badge" id="swipe-counter-badge" style="background-color: var(--color-primary-light); color: var(--color-primary); font-size: 0.8rem; font-weight: 600; padding: 6px 12px; border-radius: var(--radius-full);">
+          <div class="swipe-counter-badge" id="swipe-counter-badge">
             Swiped: 0
           </div>
         </div>
-
-        <div class="swipe-area-wrapper" style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; position: relative; margin-top: 10px;">
+ 
+        <div class="swipe-area-wrapper">
           <!-- The stack of cards -->
-          <div class="swipe-card-deck" id="swipe-card-deck" style="position: relative; width: 340px; height: 500px; display: flex; justify-content: center; align-items: center;">
+          <div class="swipe-card-deck" id="swipe-card-deck">
             <!-- Loading state -->
-            <div class="swipe-card-loading" id="swipe-card-loading" style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
-              <div class="spinner-custom" style="width: 40px; height: 40px; border: 4px solid var(--color-border); border-top: 4px solid var(--color-primary); border-radius: 50%; animation: spin 1s linear infinite;"></div>
-              <p style="margin-top: 12px; font-weight: 600; color: var(--color-text-muted);">Finding books for you...</p>
+            <div class="swipe-card-loading" id="swipe-card-loading">
+              <div class="spinner-custom"></div>
+              <p>Finding books for you...</p>
             </div>
             
             <!-- Cards will be populated dynamically -->
           </div>
-
-          <!-- Unobtrusive backup buttons (minimally invasive) -->
-          <div class="swipe-action-controls" style="display: flex; gap: 24px; margin-top: 24px; margin-bottom: 12px;">
-            <button class="swipe-btn swipe-btn-nope" id="btn-swipe-nope" title="Nope (Left Arrow)" style="width: 52px; height: 52px; border-radius: 50%; border: 2px solid var(--color-border); background: var(--color-bg); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--color-text-muted); transition: var(--transition); box-shadow: 0 4px 10px rgba(0,0,0,0.05);">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+ 
+          <!-- Swipe buttons matching mockup -->
+          <div class="swipe-action-controls">
+            <button class="swipe-btn swipe-btn-nope" id="btn-swipe-nope" title="Nope (Left Arrow)">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
             </button>
-            <button class="swipe-btn swipe-btn-like" id="btn-swipe-like" title="Like (Right Arrow)" style="width: 52px; height: 52px; border-radius: 50%; border: 2px solid var(--color-primary); background: var(--color-primary-light); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--color-primary); transition: var(--transition); box-shadow: 0 4px 10px rgba(140, 46, 60, 0.1);">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+            <button class="swipe-btn swipe-btn-like" id="btn-swipe-like" title="Like (Right Arrow)">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path>
+              </svg>
             </button>
           </div>
         </div>
@@ -581,7 +590,7 @@
   <div class="auth-container" id="auth-container" style="display: none;">
     <div class="auth-card">
       <div class="auth-logo">
-        <span class="logo-icon">📖</span> HotGirls<span>Read.</span>
+        H<span class="logo-fire-icon">🔥</span>t Girls Read
       </div>
       <h2 class="auth-title" id="auth-title">Welcome to the Club</h2>
       <p class="auth-subtitle" id="auth-subtitle">Share your reading journey, track goals, and connect with friends.</p>
