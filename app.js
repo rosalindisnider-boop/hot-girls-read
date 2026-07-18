@@ -2752,6 +2752,16 @@ async function swipeRight(cardEl, book) {
   swipedSessionCount++;
   if (swipeCounterBadge) swipeCounterBadge.textContent = 'Swiped: ' + swipedSessionCount;
   
+  // Trigger feedback animation overlay
+  const overlay = document.getElementById('swipe-feedback-overlay');
+  if (overlay) {
+    overlay.textContent = '🔥';
+    overlay.className = 'swipe-feedback-overlay animate-like';
+    setTimeout(() => {
+      overlay.className = 'swipe-feedback-overlay';
+    }, 600);
+  }
+  
   await saveSwipedBook(book, 'like');
   
   setTimeout(() => {
@@ -2771,6 +2781,16 @@ async function swipeLeft(cardEl, book) {
   
   swipedSessionCount++;
   if (swipeCounterBadge) swipeCounterBadge.textContent = 'Swiped: ' + swipedSessionCount;
+  
+  // Trigger feedback animation overlay
+  const overlay = document.getElementById('swipe-feedback-overlay');
+  if (overlay) {
+    overlay.textContent = '🪨';
+    overlay.className = 'swipe-feedback-overlay animate-dislike';
+    setTimeout(() => {
+      overlay.className = 'swipe-feedback-overlay';
+    }, 600);
+  }
   
   await saveSwipedBook(book, 'dislike');
   
